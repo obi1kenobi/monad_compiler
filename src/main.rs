@@ -5,7 +5,10 @@ use std::{env, fs};
 
 use itertools::Itertools;
 
-use crate::{parser::parse_program, program::{Instruction, InstructionStream}};
+use crate::{
+    parser::parse_program,
+    program::{Instruction, InstructionStream},
+};
 
 mod parser;
 mod program;
@@ -26,13 +29,35 @@ fn main() {
 
     match part {
         "analyze" => {
-            let analysis = analyze_program(input_program);
-            println!("{:?}", analysis);
+            analyze_program(input_program);
         }
         _ => unreachable!("{}", part),
     }
 }
 
+fn get_improvement_percent(original_length: usize, optimized_length: usize) -> f64 {
+    let original = f64::from(original_length as i32);
+    let optimized = f64::from(optimized_length as i32);
+
+    ((original / optimized) - 1.0) * 100.0
+}
+
 fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
-    input_program
+    let original_program = input_program.clone();
+
+    let optimized_program = input_program;
+
+    let original_length = original_program.len();
+    let optimized_length = optimized_program.len();
+
+    println!(
+        "Original vs optimized length:    {} vs {} (-{})",
+        original_length, optimized_length, original_length - optimized_length,
+    );
+    println!(
+        "Optimized is more efficient by:  {:.2}%",
+        get_improvement_percent(original_length, optimized_length)
+    );
+
+    optimized_program
 }
