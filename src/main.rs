@@ -6,7 +6,7 @@ use std::{env, fs};
 use itertools::Itertools;
 
 use crate::{
-    optimization::remove_div_by_1,
+    optimization::constant_propagation,
     parser::parse_program,
     program::{Instruction, InstructionStream},
 };
@@ -47,7 +47,7 @@ fn get_improvement_percent(original_length: usize, optimized_length: usize) -> f
 fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
     let original_program = input_program.clone();
 
-    let optimized_program = remove_div_by_1(input_program);
+    let optimized_program = constant_propagation(input_program);
 
     let original_length = original_program.len();
     let optimized_length = optimized_program.len();
