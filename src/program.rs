@@ -61,15 +61,15 @@ impl Display for Instruction {
 
 impl Instruction {
     #[inline]
-    pub fn destination(&self) -> Register {
-        *match self {
+    pub fn destination(&self) -> usize {
+        match self {
             Instruction::Input(r) => r,
             Instruction::Add(r, _) => r,
             Instruction::Mul(r, _) => r,
             Instruction::Div(r, _) => r,
             Instruction::Mod(r, _) => r,
             Instruction::Equal(r, _) => r,
-        }
+        }.0
     }
 
     #[inline]
