@@ -7,12 +7,12 @@ fn evaluate_instruction(instr: Instruction, left: Value, right: Value) -> Value 
         // Both values for this instruction are known exactly.
         // We can compute the result exactly as well.
         let exact_value = match instr {
-            Instruction::Input(_) => unreachable!(), // not supported here
-            Instruction::Add(_, _) => left + right,
-            Instruction::Mul(_, _) => left * right,
-            Instruction::Div(_, _) => left / right,
-            Instruction::Mod(_, _) => left % right,
-            Instruction::Equal(_, _) => {
+            Instruction::Input(..) => unreachable!(), // not supported here
+            Instruction::Add(..) => left + right,
+            Instruction::Mul(..) => left * right,
+            Instruction::Div(..) => left / right,
+            Instruction::Mod(..) => left % right,
+            Instruction::Equal(..) => {
                 if left == right {
                     1
                 } else {
