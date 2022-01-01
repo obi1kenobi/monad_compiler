@@ -45,8 +45,9 @@ fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
         | (                _, Instruction::Div(..),   Value::Exact(1)) => true,
         (Value::Exact(a), Instruction::Mod(..),   Value::Exact(b)) => a < b,
         (Value::Exact(a), Instruction::Equal(..), Value::Exact(b)) => {
-            // Equal is a no-op if the sides are equal and a == 1,
-            // or if they are not and a == 0.
+            // We're considering "eql a b" and storing the result in a.
+            // If a == b, then a becomes 1. This is a no-op if a == b == 1.
+            // If a != b, then a becomes 0. This is a no-op if a != b and a == 0.
             let sides_equal = a == b;
             (sides_equal && a == 1) || (!sides_equal && a == 0)
         }
