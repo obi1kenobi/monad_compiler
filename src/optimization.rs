@@ -38,12 +38,12 @@ fn evaluate_instruction(instr: Instruction, left: Value, right: Value) -> Value 
 #[rustfmt::skip]
 fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
     match (left, instr, right) {
-        (                  _, Instruction::Add(..),   Value::Exact(0))
-        | (  Value::Exact(0), Instruction::Mul(..),                 _)
-        | (                _, Instruction::Mul(..),   Value::Exact(1))
-        | (  Value::Exact(0), Instruction::Div(..),                 _)
-        | (                _, Instruction::Div(..),   Value::Exact(1)) => true,
-        (Value::Exact(a), Instruction::Mod(..),   Value::Exact(b)) => a < b,
+        (    _,               Instruction::Add(..),   Value::Exact(0))
+        | (  Value::Exact(0), Instruction::Mul(..),   _              )
+        | (  _,               Instruction::Mul(..),   Value::Exact(1))
+        | (  Value::Exact(0), Instruction::Div(..),   _              )
+        | (  _,               Instruction::Div(..),   Value::Exact(1)) => true,
+        (Value::Exact(a), Instruction::Mod(..), Value::Exact(b)) => a < b,
         (Value::Exact(a), Instruction::Equal(..), Value::Exact(b)) => {
             // We're considering "eql a b" and storing the result in a.
             // If a == b, then a becomes 1. This is a no-op if a == b == 1.
