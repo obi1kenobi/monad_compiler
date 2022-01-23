@@ -2,7 +2,7 @@
 
 use crate::program::{Instruction, Operand, Register};
 
-fn evaluate_instruction(instr: Instruction, left: Value, right: Value) -> Value {
+pub(crate) fn evaluate_instruction(instr: Instruction, left: Value, right: Value) -> Value {
     if let (Value::Exact(left), Value::Exact(right)) = (left, right) {
         // Both values for this instruction are known exactly.
         // We can compute the result exactly as well.
@@ -36,7 +36,7 @@ fn evaluate_instruction(instr: Instruction, left: Value, right: Value) -> Value 
 }
 
 #[rustfmt::skip]
-fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
+pub(crate) fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
     match (left, instr, right) {
         (    _,               Instruction::Add(..),   Value::Exact(0))
         | (  Value::Exact(0), Instruction::Mul(..),   _              )

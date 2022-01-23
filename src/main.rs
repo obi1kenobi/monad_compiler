@@ -6,9 +6,9 @@ use std::{env, fs};
 use itertools::Itertools;
 
 use crate::{
-    optimization::constant_propagation,
+    optimization::{constant_propagation, evaluate_instruction, is_instruction_no_op, Value},
     parser::parse_program,
-    program::{Instruction, InstructionStream},
+    program::{Instruction, InstructionStream, Operand, Register},
 };
 
 mod optimization;
@@ -33,6 +33,9 @@ fn main() {
         "analyze" => {
             analyze_program(input_program);
         }
+        "registers" => {
+            simulate_registers(input_program);
+        }
         _ => unreachable!("{}", part),
     }
 }
@@ -44,17 +47,23 @@ fn get_improvement_percent(original_length: usize, optimized_length: usize) -> f
     ((original / optimized) - 1.0) * 100.0
 }
 
+fn optimize_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
+    constant_propagation(input_program)
+}
+
 fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
     let original_program = input_program.clone();
 
-    let optimized_program = constant_propagation(input_program);
+    let optimized_program = optimize_program(input_program);
 
     let original_length = original_program.len();
     let optimized_length = optimized_program.len();
 
     println!(
         "Original vs optimized length:    {} vs {} (-{})",
-        original_length, optimized_length, original_length - optimized_length,
+        original_length,
+        optimized_length,
+        original_length - optimized_length,
     );
     println!(
         "Optimized is more efficient by:  {:.2}%",
@@ -62,4 +71,53 @@ fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
     );
 
     optimized_program
+}
+
+fn simulate_registers(input_program: Vec<Instruction>) {
+    println!("instruction                   post-instruction registers");
+    println!("                         w     |     x     |     y     |     z");
+    println!("--------------------------------------------------------------------");
+    println!("<program start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
+
+    let mut registers: [Value; 4] = [Value::Exact(0); 4];
+    let mut seen_inputs = 0;
+    for instr in input_program {
+        let mut is_no_op = false;
+
+        if let Instruction::Input(Register(index)) = instr {
+            registers[index] = Value::Input(seen_inputs);
+            seen_inputs += 1;
+        } else {
+            let register_index = instr.destination();
+            let left = registers[register_index];
+            let right = match instr.operand().unwrap() {
+                Operand::Literal(lit) => Value::Exact(lit),
+                Operand::Register(Register(r)) => registers[r],
+            };
+
+            is_no_op = is_instruction_no_op(instr, left, right);
+            let result = evaluate_instruction(instr, left, right);
+            registers[register_index] = result;
+        }
+        let no_op_str = if is_no_op { " *NoOp" } else { "" };
+
+        fn beautifully_padded_register(v: Value) -> String {
+            let result = format!("{:?}", v);
+            if result.len() % 2 == 0 {
+                format!(" {:?}", v)
+            } else {
+                result
+            }
+        }
+
+        println!(
+            "{:18} [ {:^9} | {:^9} | {:^9} | {:^9} ]{}",
+            format!("{}", instr),
+            beautifully_padded_register(registers[0]),
+            beautifully_padded_register(registers[1]),
+            beautifully_padded_register(registers[2]),
+            beautifully_padded_register(registers[3]),
+            no_op_str
+        );
+    }
 }
