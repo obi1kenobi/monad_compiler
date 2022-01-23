@@ -2,6 +2,8 @@
 
 use std::fmt::Display;
 
+/// A register in a MONAD instruction.
+/// Registers w, x, y, z are Register(0) through Register(3), respectively.
 #[derive(Debug, Clone, Copy)]
 pub struct Register(pub usize);
 
@@ -19,6 +21,9 @@ impl Display for Register {
     }
 }
 
+/// The second operand of a MONAD instruction.
+/// Can be a literal number like the `2` in `add x 2`,
+/// or a register like the `y` in `add x y`.
 #[derive(Debug, Clone, Copy)]
 pub enum Operand {
     Literal(i64),
@@ -38,12 +43,12 @@ impl Display for Operand {
 /// See Advent of Code 2021 Day 24 for the spec: https://adventofcode.com/2021/day/24
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
-    Input(Register),
-    Add(Register, Operand),
-    Mul(Register, Operand),
-    Div(Register, Operand),
-    Mod(Register, Operand),
-    Equal(Register, Operand),
+    Input(Register),           // e.g. inp x
+    Add(Register, Operand),    // e.g. add x 2
+    Mul(Register, Operand),    // e.g. mul x 0
+    Div(Register, Operand),    // e.g. div x 10
+    Mod(Register, Operand),    // e.g. mod x 31
+    Equal(Register, Operand),  // e.g. eql x y
 }
 
 impl Display for Instruction {
