@@ -79,6 +79,10 @@ fn simulate_registers(input_program: Vec<Instruction>) {
     println!("--------------------------------------------------------------------");
     println!("<program start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
 
+    let mut non_input_instr = 0;
+    let mut non_input_instr_on_unknown_register = 0;
+    let mut non_input_instr_without_any_exact = 0;
+
     let mut registers: [Value; 4] = [Value::Exact(0); 4];
     let mut seen_inputs = 0;
     for instr in input_program {
@@ -88,12 +92,22 @@ fn simulate_registers(input_program: Vec<Instruction>) {
             registers[index] = Value::Input(seen_inputs);
             seen_inputs += 1;
         } else {
+            non_input_instr += 1;
+
             let register_index = instr.destination();
             let left = registers[register_index];
             let right = match instr.operand().unwrap() {
                 Operand::Literal(lit) => Value::Exact(lit),
                 Operand::Register(Register(r)) => registers[r],
             };
+
+            if !matches!(left, Value::Exact(..)) || !matches!(right, Value::Exact(..)) {
+                non_input_instr_on_unknown_register += 1;
+            }
+
+            if !matches!(left, Value::Exact(..)) && !matches!(right, Value::Exact(..)) {
+                non_input_instr_without_any_exact += 1;
+            }
 
             is_no_op = is_instruction_no_op(instr, left, right);
             let result = evaluate_instruction(instr, left, right);
@@ -120,4 +134,8 @@ fn simulate_registers(input_program: Vec<Instruction>) {
             no_op_str
         );
     }
+
+    println!("\nTotal non-input instructions: {:3}", non_input_instr);
+    println!("- with 1+ non-exact value:    {:3} ({:.1}%)", non_input_instr_on_unknown_register, (non_input_instr_on_unknown_register * 100) as f64 / non_input_instr as f64);
+    println!("- without any exact values:   {:3} ({:.1}%)", non_input_instr_without_any_exact, (non_input_instr_without_any_exact * 100) as f64 / non_input_instr as f64);
 }

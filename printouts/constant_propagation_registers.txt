@@ -254,3 +254,7 @@ add y w            [ Input(13) |  Unknown  |  Unknown  |  Unknown  ]
 add y 1            [ Input(13) |  Unknown  |  Unknown  |  Unknown  ]
 mul y x            [ Input(13) |  Unknown  |  Unknown  |  Unknown  ]
 add z y            [ Input(13) |  Unknown  |  Unknown  |  Unknown  ]
+
+Total non-input instructions: 238
+- with 1+ non-exact value:    218 (91.6%)
+- without any exact values:    53 (22.3%)

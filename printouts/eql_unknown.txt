@@ -1,0 +1,11 @@
+instruction                   post-instruction registers
+                         w     |     x     |     y     |     z
+--------------------------------------------------------------------
+<program start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]
+inp w              [  Input(0) |  Exact(0) |  Exact(0) |  Exact(0) ]
+add x w            [  Input(0) |  Unknown  |  Exact(0) |  Exact(0) ]
+eql w x            [  Unknown  |  Unknown  |  Exact(0) |  Exact(0) ]
+
+Total non-input instructions:   2
+- with 1+ non-exact value:      2 (100.0%)
+- without any exact values:     1 (50.0%)
