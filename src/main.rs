@@ -1,4 +1,3 @@
-#![feature(map_try_insert)]
 #![allow(unused_imports)]
 
 use std::{env, fs};
