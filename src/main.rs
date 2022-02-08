@@ -73,10 +73,10 @@ fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
 }
 
 fn simulate_registers(input_program: Vec<Instruction>) {
-    println!("instruction                   post-instruction registers");
-    println!("                         w     |     x     |     y     |     z");
+    println!("instruction           post-instruction registers");
+    println!("                 w     |     x     |     y     |     z");
     println!("--------------------------------------------------------------------");
-    println!("<program start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
+    println!("<start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
 
     let mut non_input_instr = 0;
     let mut non_input_instr_on_unknown_register = 0;
@@ -124,7 +124,7 @@ fn simulate_registers(input_program: Vec<Instruction>) {
         }
 
         println!(
-            "{:18} [ {:^9} | {:^9} | {:^9} | {:^9} ]{}",
+            "{:10} [ {:^9} | {:^9} | {:^9} | {:^9} ]{}",
             format!("{}", instr),
             beautifully_padded_register(registers[0]),
             beautifully_padded_register(registers[1]),
