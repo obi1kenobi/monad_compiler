@@ -1,10 +1,21 @@
 #![allow(dead_code)]
 
-use std::fmt::Display;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::Display,
+};
 
-use crate::{program::{Instruction, Operand, Register}, value_ids::{VidMaker, Vid}};
+use crate::{
+    program::{Instruction, Operand, Register},
+    value_ids::{Vid, VidMaker},
+};
 
-pub(crate) fn evaluate_instruction(vid_maker: &mut VidMaker, instr: &Instruction, left: Value, right: Value) -> Value {
+pub(crate) fn evaluate_instruction(
+    vid_maker: &mut VidMaker,
+    instr: &Instruction,
+    left: Value,
+    right: Value,
+) -> Value {
     if is_instruction_no_op(instr, left, right) {
         // The instruction is a no-op, the register's value remains unchanged.
         return left;
@@ -49,7 +60,7 @@ pub(crate) fn evaluate_instruction(vid_maker: &mut VidMaker, instr: &Instruction
                 // The value may not be 0 since that's against the spec
                 // and is therefore undefined behavior.
                 return Value::Exact(vid_maker.make_new_vid(), 1);
-            },
+            }
             Instruction::Mod(..) => {
                 // We are calculating the remainder when dividing a value by itself,
                 // so the result is always 0. The value may not be 0 since
@@ -97,7 +108,11 @@ pub(crate) fn is_instruction_no_op(instr: &Instruction, left: Value, right: Valu
     }
 }
 
-pub fn constant_propagation(vid_maker: &mut VidMaker, starting_registers: &[Value; 4], instructions: &[Instruction]) -> Vec<[Value; 4]> {
+pub fn constant_propagation(
+    vid_maker: &mut VidMaker,
+    starting_registers: &[Value; 4],
+    instructions: &[Instruction],
+) -> Vec<[Value; 4]> {
     let mut registers_after_instr = vec![];
     let mut next_input_id = 0;
 
@@ -170,6 +185,7 @@ pub struct Program {
     pub instructions: Vec<Instruction>,
     pub starting_registers: [Value; 4],
     pub registers_after_instr: Vec<[Value; 4]>,
+    pub value_used: BTreeSet<Vid>,
     vid_maker: VidMaker,
 }
 
@@ -177,12 +193,17 @@ impl Program {
     pub fn new(instructions: Vec<Instruction>) -> Self {
         let (mut vid_maker, starting_registers) = VidMaker::initial_registers_and_vid_maker();
 
-        let registers_after_instr = constant_propagation(&mut vid_maker, &starting_registers, &instructions);
+        let registers_after_instr =
+            constant_propagation(&mut vid_maker, &starting_registers, &instructions);
+
+        let value_used =
+            find_used_values(starting_registers, &registers_after_instr, &instructions);
 
         Self {
             instructions,
             starting_registers,
             registers_after_instr,
+            value_used,
             vid_maker,
         }
     }
@@ -194,9 +215,14 @@ impl Program {
         for (index, instruction) in self.instructions.iter().enumerate() {
             let next_registers = &self.registers_after_instr[index];
             let is_no_op = registers == next_registers;
+            let is_used_value = self.value_used.contains(&next_registers[instruction.destination()].vid());
 
-            if !is_no_op {
+            // dbg!(&self.value_used);
+
+            if !is_no_op && is_used_value {
                 new_program.push(*instruction);
+            } else if !is_used_value {
+                println!("unused: {}: {}, value {}", index, instruction, next_registers[instruction.destination()]);
             }
 
             registers = next_registers;
@@ -204,4 +230,96 @@ impl Program {
 
         new_program
     }
+}
+
+fn find_used_values(
+    starting_registers: [Value; 4],
+    registers_after_instr: &[[Value; 4]],
+    instructions: &[Instruction],
+) -> BTreeSet<Vid> {
+    let mut used_values: BTreeSet<Vid> = Default::default();
+
+    // The z (last) register's value at the end of the program is used,
+    // by the definition of the MONAD language and the problem statement.
+    used_values.insert(registers_after_instr.last().unwrap().last().unwrap().vid());
+
+    let mut registers_before_instr = vec![&starting_registers];
+    registers_before_instr.extend(registers_after_instr[..registers_after_instr.len() - 1].iter());
+    assert_eq!(instructions.len(), registers_before_instr.len());
+
+    let reversed_instructions = instructions.iter().rev();
+    let reversed_registers_before = registers_before_instr.into_iter().rev();
+    let reversed_registers_after = registers_after_instr.iter().rev();
+
+    for (instr, (registers_before, registers_after)) in reversed_instructions.zip(reversed_registers_before.zip(reversed_registers_after)) {
+        let source_value = registers_before[instr.destination()];
+        let operand_register_value = match instr.operand() {
+            Some(Operand::Register(r)) => Some(registers_before[r.0]),
+            _ => None,
+        };
+        let operand_value = match instr.operand() {
+            Some(Operand::Register(r)) => Some(registers_before[r.0]),
+            Some(Operand::Literal(l)) => Some(Value::Exact(Vid::UNDEFINED, l)),
+            None => None,
+        };
+        let destination_value = registers_after[instr.destination()];
+
+        let special_case_mul_unused_source_values = {
+            // Special case: multiplying by 0 clears any prior state from a register.
+            // That register's prior value isn't used -- it doesn't matter what it is.
+            //
+            // Since we can prove this is a multiplication by zero regardless of where the zero is,
+            // we can rewrite this to be a multiplication against literal zero and avoid the use
+            // of the operand register (if any). The operand register (if any) is also not used.
+            matches!(instr, Instruction::Mul(..)) && (
+                matches!(source_value, Value::Exact(_, 0)) ||
+                matches!(operand_value, Some(Value::Exact(_, 0)))
+            )
+        };
+        let special_case_eql_unused_source_values = {
+            // Special case: comparing two known-equal values always produces the Exact(1) value.
+            // We can always rewrite this instruction as a "compare the register against itself",
+            // in which form it uses neither the source register's value nor the operand register's
+            // value (if any) -- all values equal themselves so the output is correct regardless
+            // of the registers' prior state.
+            matches!(instr, Instruction::Equal(..)) && source_value == operand_value.unwrap()
+        };
+
+        if !special_case_mul_unused_source_values && !special_case_eql_unused_source_values {
+            match instr {
+                Instruction::Input(..) => {
+                    // The value that was previously in the register is ignored and overwritten.
+                    // This does not count as a use.
+                }
+                Instruction::Add(..) |
+                Instruction::Mul(..) |
+                Instruction::Div(..) |
+                Instruction::Mod(..) |
+                Instruction::Equal(..) => {
+                    // If this instruction is a no-op (i.e. the register's value is unchanged)
+                    // then we know the instruction is going to get eliminated and we don't consider
+                    // the operand register's value (if any) as used.
+                    //
+                    // If the register's value changes, then the instruction is not a no-op
+                    // but may still be dead code: we check if the destination value is used.
+                    // If the destination value was used, then the source register's value
+                    // and the operand register's value (if any) are both used.
+                    if destination_value != source_value && used_values.contains(&destination_value.vid()) {
+                        used_values.insert(source_value.vid());
+
+                        // If the instruction uses an operand register, and the register's value
+                        // is exactly known, then there's no dependency on the operand register's
+                        // value: we can rewrite the instruction to use a literal instead.
+                        if let Some(operand_value) = operand_register_value {
+                            if !matches!(operand_value, Value::Exact(..)) {
+                                used_values.insert(operand_value.vid());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    used_values
 }
