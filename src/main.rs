@@ -3,6 +3,7 @@
 use std::{env, fs};
 
 use itertools::Itertools;
+use optimization::Program;
 
 use crate::{
     optimization::{constant_propagation, evaluate_instruction, is_instruction_no_op, Value},
@@ -13,6 +14,7 @@ use crate::{
 mod optimization;
 mod parser;
 mod program;
+mod value_ids;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -47,7 +49,7 @@ fn get_improvement_percent(original_length: usize, optimized_length: usize) -> f
 }
 
 fn optimize_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
-    constant_propagation(input_program)
+    Program::new(input_program).optimize()
 }
 
 fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
@@ -73,58 +75,60 @@ fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
 }
 
 fn simulate_registers(input_program: Vec<Instruction>) {
+    fn beautifully_padded_register(v: Value) -> String {
+        let result = format!("{}", v);
+        if result.len() % 2 == 0 {
+            format!(" {}", v)
+        } else {
+            result
+        }
+    }
+
     println!("instruction           post-instruction registers");
     println!("                 w     |     x     |     y     |     z");
-    println!("--------------------------------------------------------------------");
-    println!("<start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
+    println!("-----------------------------------------------------------------------------------");
+
+    let program = Program::new(input_program);
+
+    println!(
+        "<start>    [ {:^15} | {:^15} | {:^15} | {:^15} ]",
+        beautifully_padded_register(program.starting_registers[0]),
+        beautifully_padded_register(program.starting_registers[1]),
+        beautifully_padded_register(program.starting_registers[2]),
+        beautifully_padded_register(program.starting_registers[3]),
+    );
 
     let mut non_input_instr = 0;
     let mut non_input_instr_on_unknown_register = 0;
     let mut non_input_instr_without_any_exact = 0;
 
-    let mut registers: [Value; 4] = [Value::Exact(0); 4];
-    let mut seen_inputs = 0;
-    for instr in input_program {
-        let mut is_no_op = false;
+    let mut last_registers = &program.starting_registers;
+    for (instr, registers) in program.instructions.iter().zip(program.registers_after_instr.iter()) {
+        let is_no_op = last_registers == registers;
 
-        if let Instruction::Input(Register(index)) = instr {
-            registers[index] = Value::Input(seen_inputs);
-            seen_inputs += 1;
-        } else {
+        if !matches!(instr, Instruction::Input(..)) {
             non_input_instr += 1;
 
             let register_index = instr.destination();
-            let left = registers[register_index];
-            let right = match instr.operand().unwrap() {
-                Operand::Literal(lit) => Value::Exact(lit),
-                Operand::Register(Register(r)) => registers[r],
+            let left_is_exact = matches!(last_registers[register_index], Value::Exact(..));
+            let right_is_exact = match instr.operand().unwrap() {
+                Operand::Literal(_) => true,
+                Operand::Register(Register(r)) => matches!(last_registers[r], Value::Exact(..)),
             };
 
-            if !matches!(left, Value::Exact(..)) || !matches!(right, Value::Exact(..)) {
+            if !left_is_exact || !right_is_exact {
                 non_input_instr_on_unknown_register += 1;
             }
 
-            if !matches!(left, Value::Exact(..)) && !matches!(right, Value::Exact(..)) {
+            if !left_is_exact && !right_is_exact {
                 non_input_instr_without_any_exact += 1;
             }
-
-            is_no_op = is_instruction_no_op(instr, left, right);
-            let result = evaluate_instruction(instr, left, right);
-            registers[register_index] = result;
         }
+
         let no_op_str = if is_no_op { " *NoOp" } else { "" };
 
-        fn beautifully_padded_register(v: Value) -> String {
-            let result = format!("{:?}", v);
-            if result.len() % 2 == 0 {
-                format!(" {:?}", v)
-            } else {
-                result
-            }
-        }
-
         println!(
-            "{:10} [ {:^9} | {:^9} | {:^9} | {:^9} ]{}",
+            "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]{}",
             format!("{}", instr),
             beautifully_padded_register(registers[0]),
             beautifully_padded_register(registers[1]),
@@ -132,6 +136,8 @@ fn simulate_registers(input_program: Vec<Instruction>) {
             beautifully_padded_register(registers[3]),
             no_op_str
         );
+
+        last_registers = registers;
     }
 
     println!("\nTotal non-input instructions: {:3}", non_input_instr);

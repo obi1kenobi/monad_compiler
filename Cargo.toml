@@ -8,3 +8,8 @@ edition = "2021"
 [dependencies]
 itertools = "0.10.1"
 nom = "7.1.0"
+
+[[bin]]
+name = "monad_compiler"
+path = "src/main.rs"
+doctest = true
