@@ -37,14 +37,25 @@ pub(crate) fn evaluate_instruction(instr: Instruction, left: Value, right: Value
 
 #[rustfmt::skip]
 pub(crate) fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
+    // Import the variant names directly to improve readability.
+    use Instruction::{Add, Mul, Div, Mod, Equal};
+
     match (left, instr, right) {
-        (    _,               Instruction::Add(..),   Value::Exact(0))
-        | (  Value::Exact(0), Instruction::Mul(..),   _              )
-        | (  _,               Instruction::Mul(..),   Value::Exact(1))
-        | (  Value::Exact(0), Instruction::Div(..),   _              )
-        | (  _,               Instruction::Div(..),   Value::Exact(1)) => true,
-        (Value::Exact(a), Instruction::Mod(..), Value::Exact(b)) => a < b,
-        (Value::Exact(a), Instruction::Equal(..), Value::Exact(b)) => {
+        (    _,               Add(..),   Value::Exact(0))       // _ + 0
+        | (  Value::Exact(0), Mul(..),   _              )       // 0 * _
+        | (  _,               Mul(..),   Value::Exact(1))       // _ * 1
+        | (  Value::Exact(0), Div(..),   _              )       // 0 / _
+        | (  _,               Div(..),   Value::Exact(1)) => {  // _ / 1
+            // All these cases are always no-ops, regardless of
+            // the other value in the operation.
+            true
+        }
+        (Value::Exact(a), Mod(..), Value::Exact(b)) => {
+            // a mod b computes the remainder of a when dividing by b.
+            // When a < b, the remainder is a itself, which is a no-op.
+            a < b
+        }
+        (Value::Exact(a), Equal(..), Value::Exact(b)) => {
             // We're considering "eql a b" and storing the result in a.
             // If a == b, then a becomes 1. This is a no-op if a == b == 1.
             // If a != b, then a becomes 0. This is a no-op if a != b and a == 0.
@@ -56,15 +67,13 @@ pub(crate) fn is_instruction_no_op(instr: Instruction, left: Value, right: Value
 }
 
 pub fn constant_propagation(instructions: Vec<Instruction>) -> Vec<Instruction> {
-    let mut result: Vec<Instruction> = vec![];
+    let mut new_program: Vec<Instruction> = vec![];
     let mut registers: [Value; 4] = [Value::Exact(0); 4];
-    let mut seen_inputs = 0;
+    let mut next_input_id = 0;
     for instr in instructions {
-        let mut is_no_op = false;
-
         if let Instruction::Input(Register(index)) = instr {
-            registers[index] = Value::Input(seen_inputs);
-            seen_inputs += 1;
+            registers[index] = Value::Input(next_input_id);
+            next_input_id += 1;
         } else {
             let register_index = instr.destination();
             let left = registers[register_index];
@@ -73,23 +82,26 @@ pub fn constant_propagation(instructions: Vec<Instruction>) -> Vec<Instruction> 
                 Operand::Register(Register(r)) => registers[r],
             };
 
-            let result = evaluate_instruction(instr, left, right);
-            registers[register_index] = result;
+            let new_program = evaluate_instruction(instr, left, right);
+            registers[register_index] = new_program;
 
-            is_no_op = is_instruction_no_op(instr, left, right);
+            if is_instruction_no_op(instr, left, right) {
+                // This instruction is a no-op,
+                // so don't include it in the new program.
+                continue;
+            }
         }
 
-        if !is_no_op {
-            result.push(instr);
-        }
+        new_program.push(instr);
     }
 
-    result
+    new_program
 }
 
+/// A value in the program being optimized.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Value {
-    Exact(i64),
-    Input(usize),
-    Unknown,
+    Exact(i64),    // Exact(k) is the constant value k.
+    Input(usize),  // Input(i) is the i-th input to the program.
+    Unknown,       // An unknown value in the program.
 }
