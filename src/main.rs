@@ -6,15 +6,18 @@ use itertools::Itertools;
 use optimization::Program;
 
 use crate::{
-    optimization::{constant_propagation, evaluate_instruction, is_instruction_no_op, Value},
+    optimization::{constant_propagation, evaluate_instruction, is_instruction_no_op},
     parser::parse_program,
     program::{Instruction, InstructionStream, Operand, Register},
+    values::Value,
 };
 
 mod optimization;
 mod parser;
 mod program;
-mod value_ids;
+mod values;
+mod annotated_instr;
+mod unique_ids;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

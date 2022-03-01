@@ -7,11 +7,11 @@ use std::{
 
 use crate::{
     program::{Instruction, Operand, Register},
-    value_ids::{Vid, VidMaker},
+    values::{Vid, vid_maker_and_initial_registers, Value}, annotated_instr::{InstrId, AnnotatedInstr, self}, unique_ids::UniqueIdMaker,
 };
 
 pub(crate) fn evaluate_instruction(
-    vid_maker: &mut VidMaker,
+    vid_maker: &mut UniqueIdMaker<Vid>,
     instr: &Instruction,
     left: Value,
     right: Value,
@@ -50,7 +50,7 @@ pub(crate) fn evaluate_instruction(
                 }
             }
         };
-        return Value::Exact(vid_maker.make_new_vid(), exact_value);
+        return Value::Exact(vid_maker.make_new_id(), exact_value);
     }
 
     if left == right {
@@ -59,18 +59,18 @@ pub(crate) fn evaluate_instruction(
                 // Dividing two equal values, so the result is always 1.
                 // The value may not be 0 since that's against the spec
                 // and is therefore undefined behavior.
-                return Value::Exact(vid_maker.make_new_vid(), 1);
+                return Value::Exact(vid_maker.make_new_id(), 1);
             }
             Instruction::Mod(..) => {
                 // We are calculating the remainder when dividing a value by itself,
                 // so the result is always 0. The value may not be 0 since
                 // that's against the spec and is therefore undefined behavior.
-                return Value::Exact(vid_maker.make_new_vid(), 0);
+                return Value::Exact(vid_maker.make_new_id(), 0);
             }
             Instruction::Equal(..) => {
                 // We are comparing a value for equality against itself.
                 // This is always true, so the result is always 1.
-                return Value::Exact(vid_maker.make_new_vid(), 1);
+                return Value::Exact(vid_maker.make_new_id(), 1);
             }
             _ => {}
         }
@@ -81,11 +81,11 @@ pub(crate) fn evaluate_instruction(
     {
         // We are multiplying by 0.
         // Even though the other input is not known, the output is always 0.
-        return Value::Exact(vid_maker.make_new_vid(), 0);
+        return Value::Exact(vid_maker.make_new_id(), 0);
     }
 
     // We weren't able to determine the result of this instruction.
-    Value::Unknown(vid_maker.make_new_vid())
+    Value::Unknown(vid_maker.make_new_id())
 }
 
 #[rustfmt::skip]
@@ -109,7 +109,7 @@ pub(crate) fn is_instruction_no_op(instr: &Instruction, left: Value, right: Valu
 }
 
 pub fn constant_propagation(
-    vid_maker: &mut VidMaker,
+    vid_maker: &mut UniqueIdMaker<Vid>,
     starting_registers: &[Value; 4],
     instructions: &[Instruction],
 ) -> Vec<[Value; 4]> {
@@ -119,13 +119,13 @@ pub fn constant_propagation(
     let mut registers = *starting_registers;
     for instr in instructions {
         if let Instruction::Input(Register(index)) = instr {
-            registers[*index] = Value::Input(vid_maker.make_new_vid(), next_input_id);
+            registers[*index] = Value::Input(vid_maker.make_new_id(), next_input_id);
             next_input_id += 1;
         } else {
             let register_index = instr.destination();
             let left = registers[register_index];
             let right = match instr.operand().unwrap() {
-                Operand::Literal(lit) => Value::Exact(vid_maker.make_new_vid(), lit),
+                Operand::Literal(lit) => Value::Exact(vid_maker.make_new_id(), lit),
                 Operand::Register(Register(r)) => registers[r],
             };
 
@@ -139,62 +139,51 @@ pub fn constant_propagation(
     registers_after_instr
 }
 
-#[derive(Debug, Clone, Copy, PartialOrd, Ord)]
-pub enum Value {
-    Exact(Vid, i64),
-    Input(Vid, usize),
-    Unknown(Vid),
-}
-
-impl PartialEq for Value {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (&Self::Exact(_, left_val), &Self::Exact(_, right_val)) => left_val == right_val,
-            (&l, &r) => l.vid() == r.vid(),
-        }
-    }
-}
-
-impl Eq for Value {}
-
-impl Value {
-    pub fn vid(&self) -> Vid {
-        match self {
-            Value::Exact(vid, _) | Value::Input(vid, _) | Value::Unknown(vid) => *vid,
-        }
-    }
-}
-
-impl Display for Value {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Value::Exact(v, val) => {
-                write!(f, "{}: Exact({})", v.0, *val)
-            }
-            Value::Input(v, inp) => {
-                write!(f, "{}: Input_{}", v.0, *inp)
-            }
-            Value::Unknown(v) => {
-                write!(f, "{}: Unknown", v.0)
-            }
-        }
-    }
-}
-
 pub struct Program {
-    pub instructions: Vec<Instruction>,
-    pub starting_registers: [Value; 4],
-    pub registers_after_instr: Vec<[Value; 4]>,
+    pub instructions: Vec<InstrId>,
+    pub annotated_instr: BTreeMap<InstrId, AnnotatedInstr>,
+    pub registers_before_instr: BTreeMap<InstrId, [Vid; 4]>,
+    pub registers_after_instr: BTreeMap<InstrId, [Vid; 4]>,
+    pub values: BTreeMap<Vid, Value>,
     pub value_used: BTreeSet<Vid>,
-    vid_maker: VidMaker,
+    instr_id_maker: UniqueIdMaker<Vid>,
+    vid_maker: UniqueIdMaker<InstrId>,
 }
 
 impl Program {
-    pub fn new(instructions: Vec<Instruction>) -> Self {
-        let (mut vid_maker, starting_registers) = VidMaker::initial_registers_and_vid_maker();
+    pub fn new(source_instructions: Vec<Instruction>) -> Self {
+        let mut instr_id_maker = InstrId::unique_id_maker();
+        let (mut vid_maker, starting_registers) = vid_maker_and_initial_registers();
+
+        let mut registers_before = [
+            starting_registers[0].vid(),
+            starting_registers[1].vid(),
+            starting_registers[2].vid(),
+            starting_registers[3].vid(),
+        ];
+        let mut instructions = vec![];
+        for instruction in source_instructions {
+            let instr_id = instr_id_maker.make_new_id();
+            instructions.push(instr_id);
+
+            todo!()
+        }
+
+        todo!()
 
         let registers_after_instr =
             constant_propagation(&mut vid_maker, &starting_registers, &instructions);
+
+        let mut annotated_instr: BTreeMap<InstrId, AnnotatedInstr> = Default::default();
+        let first_instruction = instructions.first().unwrap();
+        let first_id = instr_id_maker.get_next_id();
+        annotated_instr.insert(first_id, AnnotatedInstr {
+            id: first_id,
+            instr: first_instruction.clone(),
+            source: todo!(),
+            operand: todo!(),
+            result: todo!(),
+        });
 
         let value_used =
             find_used_values(starting_registers, &registers_after_instr, &instructions);
