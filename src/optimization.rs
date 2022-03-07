@@ -6,8 +6,8 @@ use std::{
 };
 
 use crate::{
-    program::{Instruction, Operand, Register},
-    values::{Vid, vid_maker_and_initial_registers, Value}, annotated_instr::{InstrId, AnnotatedInstr, self}, unique_ids::UniqueIdMaker,
+    program::{Instruction, Operand, Register, self},
+    values::{Vid, Value, ProgramValues}, annotated_instr::{InstrId, AnnotatedInstr, self}, unique_ids::UniqueIdMaker,
 };
 
 pub(crate) fn evaluate_instruction(
@@ -144,56 +144,62 @@ pub struct Program {
     pub annotated_instr: BTreeMap<InstrId, AnnotatedInstr>,
     pub registers_before_instr: BTreeMap<InstrId, [Vid; 4]>,
     pub registers_after_instr: BTreeMap<InstrId, [Vid; 4]>,
-    pub values: BTreeMap<Vid, Value>,
-    pub value_used: BTreeSet<Vid>,
-    instr_id_maker: UniqueIdMaker<Vid>,
-    vid_maker: UniqueIdMaker<InstrId>,
+    pub values: ProgramValues,
+    instr_id_maker: UniqueIdMaker<InstrId>,
 }
 
 impl Program {
     pub fn new(source_instructions: Vec<Instruction>) -> Self {
         let mut instr_id_maker = InstrId::unique_id_maker();
-        let (mut vid_maker, starting_registers) = vid_maker_and_initial_registers();
+        let mut registers_before_instr: BTreeMap<InstrId, [Vid; 4]> = Default::default();
+        let mut registers_after_instr: BTreeMap<InstrId, [Vid; 4]> = Default::default();
+        let mut annotated_instr: BTreeMap<InstrId, AnnotatedInstr> = Default::default();
 
-        let mut registers_before = [
-            starting_registers[0].vid(),
-            starting_registers[1].vid(),
-            starting_registers[2].vid(),
-            starting_registers[3].vid(),
-        ];
+        let (mut values, initial_registers) = ProgramValues::at_program_start();
+
+        let mut registers = initial_registers;
         let mut instructions = vec![];
-        for instruction in source_instructions {
+        for instruction in &source_instructions {
             let instr_id = instr_id_maker.make_new_id();
             instructions.push(instr_id);
 
-            todo!()
+            registers_before_instr.insert(instr_id, registers);
+
+            let source = registers[instruction.destination()];
+            let operand = match instruction.operand() {
+                Some(Operand::Register(Register(r))) => {
+                    registers[r]
+                }
+                Some(Operand::Literal(lit)) => {
+                    values.register_exact_value(lit).vid()
+                }
+                None => Vid::UNDEFINED,
+            };
+            let result = if let Instruction::Input(..) = instruction {
+                values.register_input_value().vid()
+            } else {
+                values.register_unknown_value().vid()
+            };
+            registers[instruction.destination()] = result;
+
+            annotated_instr.insert(instr_id, AnnotatedInstr {
+                id: instr_id,
+                instr: *instruction,
+                source,
+                operand,
+                result,
+            });
+
+            registers_after_instr.insert(instr_id, registers);
         }
-
-        todo!()
-
-        let registers_after_instr =
-            constant_propagation(&mut vid_maker, &starting_registers, &instructions);
-
-        let mut annotated_instr: BTreeMap<InstrId, AnnotatedInstr> = Default::default();
-        let first_instruction = instructions.first().unwrap();
-        let first_id = instr_id_maker.get_next_id();
-        annotated_instr.insert(first_id, AnnotatedInstr {
-            id: first_id,
-            instr: first_instruction.clone(),
-            source: todo!(),
-            operand: todo!(),
-            result: todo!(),
-        });
-
-        let value_used =
-            find_used_values(starting_registers, &registers_after_instr, &instructions);
 
         Self {
             instructions,
-            starting_registers,
+            annotated_instr,
+            registers_before_instr,
             registers_after_instr,
-            value_used,
-            vid_maker,
+            values,
+            instr_id_maker,
         }
     }
 

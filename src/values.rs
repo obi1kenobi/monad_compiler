@@ -2,7 +2,7 @@
 
 use std::{collections::{BTreeMap, BTreeSet}, fmt::Display};
 
-use crate::unique_ids::UniqueIdMaker;
+use crate::{unique_ids::UniqueIdMaker, annotated_instr::InstrId};
 
 /// A value ID -- a unique way to refer to a particular value in a program.
 ///
@@ -74,34 +74,37 @@ impl Display for Value {
     }
 }
 
-pub fn vid_maker_and_initial_registers() -> (UniqueIdMaker<Vid>, [Value; 4]) {
-    let mut vid_maker = Vid::unique_id_maker();
-
-    let registers = [
-        Value::Exact(vid_maker.make_new_id(), 0),
-        Value::Exact(vid_maker.make_new_id(), 0),
-        Value::Exact(vid_maker.make_new_id(), 0),
-        Value::Exact(vid_maker.make_new_id(), 0),
-    ];
-
-    (vid_maker, registers)
-}
-
 pub struct ProgramValues {
     vid_maker: UniqueIdMaker<Vid>,
     inputs_seen: usize,
     values: BTreeMap<Vid, Value>,
-    used_values: BTreeSet<Vid>,
+    used_values: BTreeMap<Vid, BTreeSet<InstrId>>,
 }
 
 impl ProgramValues {
-    pub fn new() -> Self {
-        Self {
-            vid_maker: Vid::unique_id_maker(),
+    pub fn at_program_start() -> (Self, [Vid; 4]) {
+        let mut vid_maker = Vid::unique_id_maker();
+
+        let register_contents = [
+            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(vid_maker.make_new_id(), 0),
+        ];
+        let values = register_contents.iter().map(|v| (v.vid(), *v)).collect();
+        let register_values = [
+            register_contents[0].vid(),
+            register_contents[1].vid(),
+            register_contents[2].vid(),
+            register_contents[3].vid(),
+        ];
+
+        (Self {
+            vid_maker,
+            values,
             inputs_seen: 0,
-            values: Default::default(),
             used_values: Default::default(),
-        }
+        }, register_values)
     }
 
     pub fn register_input_value(&mut self) -> Value {
