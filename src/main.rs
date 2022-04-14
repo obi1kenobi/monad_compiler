@@ -9,15 +9,15 @@ use values::Vid;
 use crate::{
     optimization::{constant_propagation, evaluate_instruction},
     parser::parse_program,
-    program::{Instruction, InstructionStream, Operand, Register},
+    program::{Instruction, InstructionStream, Operand, Program, Register},
     values::Value,
 };
 
 mod optimization;
 mod parser;
 mod program;
-mod values;
 mod unique_ids;
+mod values;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -52,8 +52,7 @@ fn get_improvement_percent(original_length: usize, optimized_length: usize) -> f
 }
 
 fn optimize_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
-    let mut vid_maker = Vid::unique_id_maker();
-    constant_propagation(&mut vid_maker, input_program)
+    constant_propagation(input_program)
 }
 
 fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
@@ -79,23 +78,22 @@ fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
 }
 
 fn simulate_registers(input_program: Vec<Instruction>) {
-    let mut vid_maker = Vid::unique_id_maker();
+    let mut program = Program::new();
 
-    println!("instruction           post-instruction registers");
-    println!("                 w     |     x     |     y     |     z");
-    println!("--------------------------------------------------------------------");
+    println!("instruction                        post-instruction registers");
+    println!("                    w        |        x        |        y        |        z");
+    println!(
+        "------------------------------------------------------------------------------------"
+    );
 
     let mut non_input_instr = 0;
     let mut non_input_instr_on_unknown_register = 0;
     let mut non_input_instr_without_any_exact = 0;
-    let mut seen_inputs = 0;
 
-    let mut registers: [Value; 4] = [
-        Value::Exact(vid_maker.make_new_id(), 0),
-        Value::Exact(vid_maker.make_new_id(), 0),
-        Value::Exact(vid_maker.make_new_id(), 0),
-        Value::Exact(vid_maker.make_new_id(), 0),
-    ];
+    let mut non_exact_value_used = 0;
+    let mut non_exact_unique_vids = 0;
+
+    let mut registers: [Value; 4] = program.initial_registers();
 
     fn beautifully_padded_register(v: Value) -> String {
         let result = format!("{}", v);
@@ -118,28 +116,36 @@ fn simulate_registers(input_program: Vec<Instruction>) {
         let mut is_no_op = false;
 
         if let Instruction::Input(Register(index)) = instr {
-            registers[index] = Value::Input(vid_maker.make_new_id(), seen_inputs);
-            seen_inputs += 1;
+            registers[index] = program.new_input_value();
+            non_exact_value_used += 1;
+            non_exact_unique_vids += 1;
         } else {
             non_input_instr += 1;
 
             let register_index = instr.destination();
             let left = registers[register_index];
             let right = match instr.operand().unwrap() {
-                Operand::Literal(lit) => Value::Exact(vid_maker.make_new_id(), lit),
+                Operand::Literal(lit) => program.new_exact_value(lit),
                 Operand::Register(Register(r)) => registers[r],
             };
 
             if !matches!(left, Value::Exact(..)) || !matches!(right, Value::Exact(..)) {
                 non_input_instr_on_unknown_register += 1;
+                non_exact_value_used += 1;
             }
 
             if !matches!(left, Value::Exact(..)) && !matches!(right, Value::Exact(..)) {
                 non_input_instr_without_any_exact += 1;
+                non_exact_value_used += 1;
             }
 
             let previous_register_value = registers[register_index];
-            let result = evaluate_instruction(&mut vid_maker, instr, left, right);
+            let result = evaluate_instruction(&mut program, instr, left, right);
+
+            if !matches!(result, Value::Exact(..)) {
+                non_exact_value_used += 1;
+                non_exact_unique_vids += 1;
+            }
 
             is_no_op = previous_register_value == result;
             registers[register_index] = result;
@@ -157,6 +163,26 @@ fn simulate_registers(input_program: Vec<Instruction>) {
     }
 
     println!("\nTotal non-input instructions: {:3}", non_input_instr);
-    println!("- with 1+ non-exact value:    {:3} ({:.1}%)", non_input_instr_on_unknown_register, (non_input_instr_on_unknown_register * 100) as f64 / non_input_instr as f64);
-    println!("- without any exact values:   {:3} ({:.1}%)", non_input_instr_without_any_exact, (non_input_instr_without_any_exact * 100) as f64 / non_input_instr as f64);
+    println!(
+        "- with 1+ non-exact value:    {:3} ({:.1}%)",
+        non_input_instr_on_unknown_register,
+        (non_input_instr_on_unknown_register * 100) as f64 / non_input_instr as f64
+    );
+    println!(
+        "- without any exact values:   {:3} ({:.1}%)",
+        non_input_instr_without_any_exact,
+        (non_input_instr_without_any_exact * 100) as f64 / non_input_instr as f64
+    );
+
+    println!("\nTotal non-exact values uses: {:3}", non_exact_value_used);
+    println!(
+        "- number of unique values: {:3} ({:.1}%)",
+        non_exact_unique_vids,
+        (non_exact_unique_vids * 100) as f64 / non_exact_value_used as f64
+    );
+    println!(
+        "- non-unique uses: {:3} ({:.1}%)",
+        non_exact_value_used - non_exact_unique_vids,
+        ((non_exact_value_used - non_exact_unique_vids) * 100) as f64 / non_exact_value_used as f64
+    );
 }

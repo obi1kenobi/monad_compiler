@@ -2,6 +2,52 @@
 
 use std::fmt::Display;
 
+use crate::{unique_ids::UniqueIdMaker, values::{Vid, Value}};
+
+#[derive(Debug)]
+pub struct Program {
+    vid_maker: UniqueIdMaker<Vid>,
+    initial_registers: [Value; 4],
+    next_input_id: usize,
+}
+
+impl Program {
+    pub fn new() -> Self {
+        let mut vid_maker = Vid::unique_id_maker();
+        let initial_registers = [
+            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(vid_maker.make_new_id(), 0),
+        ];
+        let next_input_id = 0;
+
+        Self {
+            vid_maker,
+            initial_registers,
+            next_input_id,
+        }
+    }
+
+    pub fn initial_registers(&self) -> [Value; 4] {
+        self.initial_registers
+    }
+
+    pub fn new_exact_value(&mut self, exactly: i64) -> Value {
+        Value::Exact(self.vid_maker.make_new_id(), exactly)
+    }
+
+    pub fn new_unknown_value(&mut self) -> Value {
+        Value::Unknown(self.vid_maker.make_new_id())
+    }
+
+    pub fn new_input_value(&mut self) -> Value {
+        let next_input_id = self.next_input_id;
+        self.next_input_id += 1;
+        Value::Input(self.vid_maker.make_new_id(), next_input_id)
+    }
+}
+
 /// A register in a MONAD instruction.
 /// Registers w, x, y, z are Register(0) through Register(3), respectively.
 #[derive(Debug, Clone, Copy)]
