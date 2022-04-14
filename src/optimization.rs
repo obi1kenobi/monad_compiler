@@ -1,9 +1,11 @@
 #![allow(dead_code)]
 
-use crate::program::{Instruction, Operand, Register};
+use crate::{program::{Instruction, Operand, Register}, unique_ids::UniqueIdMaker, values::{Vid, Value}};
 
-pub(crate) fn evaluate_instruction(instr: Instruction, left: Value, right: Value) -> Value {
-    if let (Value::Exact(left), Value::Exact(right)) = (left, right) {
+pub(crate) fn evaluate_instruction(vid_maker: &mut UniqueIdMaker<Vid>, instr: Instruction, left: Value, right: Value) -> Value {
+    // If both the left and the right value are known exactly,
+    // we can always calculate an exact result.
+    if let (Value::Exact(_, left), Value::Exact(_, right)) = (left, right) {
         // Both values for this instruction are known exactly.
         // We can compute the result exactly as well.
         let exact_value = match instr {
@@ -20,72 +22,92 @@ pub(crate) fn evaluate_instruction(instr: Instruction, left: Value, right: Value
                 }
             }
         };
-        return Value::Exact(exact_value);
+        return Value::Exact(vid_maker.make_new_id(), exact_value);
     }
 
-    if matches!(instr, Instruction::Mul(..))
-        && (matches!(left, Value::Exact(0)) || matches!(right, Value::Exact(0)))
-    {
-        // We are multiplying by 0.
-        // Even though the other input is not known, the output is always 0.
-        return Value::Exact(0);
-    }
+    // In specific cases for some instructions, we may still be able to figure out the result
+    // even though one of the values is unknown. The resulting value might not be exact,
+    // but may still indicate information such as "the same value as the left input value,"
+    // which is useful information for downstream optimization passes.
+    let maybe_value = match instr {
+        Instruction::Input(..) => unreachable!(), // not supported here
+        Instruction::Add(..) => {
+            match (left, right) {
+                (_, Value::Exact(_, 0)) => Some(left),   // left + 0 = p
+                (Value::Exact(_, 0), _) => Some(right),  // 0 + right = right
+                _ => None,
+            }
+        }
+        Instruction::Mul(..) => {
+            match (left, right) {
+                (_, Value::Exact(_, 0)) | (Value::Exact(_, 0), _) => {
+                    // We are multiplying by 0.
+                    // Even though the other input is not known, the output is always 0.
+                    Some(Value::Exact(vid_maker.make_new_id(), 0))
+                }
+                (_, Value::Exact(_, 1)) => Some(left),   // left * 1 = left
+                (Value::Exact(_, 1), _) => Some(right),  // 1 * right = right
+                _ => None,
+            }
+        }
+        Instruction::Div(..) => {
+            match (left, right) {
+                (Value::Exact(_, 0), _) => Some(left),  // 0 / right = 0
+                (_, Value::Exact(_, 1)) => Some(left),  // left / 1 = left
+                _ => None,
+            }
+        }
+        Instruction::Equal(..) => {
+            if left == right {
+                // Situations where both left and right are Exact(..) values were already handled
+                // in the code above. However, it's possible for us to know that two values
+                // are equal even if we don't know what number they represent:
+                //   Unknown(Vid(i)) is known to be equal to Unknown(Vid(j)) when i == j.
+                // However, when i != j, then we don't know whether Unknown(Vid(i)) and
+                // Unknown(Vid(j)) are equal or not, so we can't determine anything about that case.
+                Some(Value::Exact(vid_maker.make_new_id(), 1))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    };
 
-    // We weren't able to determine the result of this instruction.
-    Value::Unknown
+    if let Some(value) = maybe_value {
+        value
+    } else {
+        // We weren't able to determine the result of this instruction.
+        Value::Unknown(vid_maker.make_new_id())
+    }
 }
 
-#[rustfmt::skip]
-pub(crate) fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
-    // Import the variant names directly to improve readability.
-    use Instruction::{Add, Mul, Div, Mod, Equal};
-
-    match (left, instr, right) {
-        (    _,               Add(..),   Value::Exact(0))       // _ + 0
-        | (  Value::Exact(0), Mul(..),   _              )       // 0 * _
-        | (  _,               Mul(..),   Value::Exact(1))       // _ * 1
-        | (  Value::Exact(0), Div(..),   _              )       // 0 / _
-        | (  _,               Div(..),   Value::Exact(1)) => {  // _ / 1
-            // All these cases are always no-ops, regardless of
-            // the other value in the operation.
-            true
-        }
-        (Value::Exact(a), Mod(..), Value::Exact(b)) => {
-            // a mod b computes the remainder of a when dividing by b.
-            // When a < b, the remainder is a itself, which is a no-op.
-            a < b
-        }
-        (Value::Exact(a), Equal(..), Value::Exact(b)) => {
-            // We're considering "eql a b" and storing the result in a.
-            // If a == b, then a becomes 1. This is a no-op if a == b == 1.
-            // If a != b, then a becomes 0. This is a no-op if a != b and a == 0.
-            let sides_equal = a == b;
-            (sides_equal && a == 1) || (!sides_equal && a == 0)
-        }
-        _ => false, // All the other cases are not no-ops.
-    }
-}
-
-pub fn constant_propagation(instructions: Vec<Instruction>) -> Vec<Instruction> {
+pub fn constant_propagation(vid_maker: &mut UniqueIdMaker<Vid>, instructions: Vec<Instruction>) -> Vec<Instruction> {
     let mut new_program: Vec<Instruction> = vec![];
-    let mut registers: [Value; 4] = [Value::Exact(0); 4];
+    let mut registers: [Value; 4] = [
+        Value::Exact(vid_maker.make_new_id(), 0),
+        Value::Exact(vid_maker.make_new_id(), 0),
+        Value::Exact(vid_maker.make_new_id(), 0),
+        Value::Exact(vid_maker.make_new_id(), 0),
+    ];
     let mut next_input_id = 0;
     for instr in instructions {
         if let Instruction::Input(Register(index)) = instr {
-            registers[index] = Value::Input(next_input_id);
+            registers[index] = Value::Input(vid_maker.make_new_id(), next_input_id);
             next_input_id += 1;
         } else {
             let register_index = instr.destination();
             let left = registers[register_index];
             let right = match instr.operand().unwrap() {
-                Operand::Literal(lit) => Value::Exact(lit),
+                Operand::Literal(lit) => Value::Exact(vid_maker.make_new_id(), lit),
                 Operand::Register(Register(r)) => registers[r],
             };
 
-            let new_program = evaluate_instruction(instr, left, right);
-            registers[register_index] = new_program;
+            let previous_register_value = registers[register_index];
 
-            if is_instruction_no_op(instr, left, right) {
+            let new_value = evaluate_instruction(vid_maker, instr, left, right);
+            registers[register_index] = new_value;
+
+            if previous_register_value == new_value {
                 // This instruction is a no-op,
                 // so don't include it in the new program.
                 continue;
@@ -96,12 +118,4 @@ pub fn constant_propagation(instructions: Vec<Instruction>) -> Vec<Instruction> 
     }
 
     new_program
-}
-
-/// A value in the program being optimized.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Value {
-    Exact(i64),    // Exact(k) is the constant value k.
-    Input(usize),  // Input(i) is the i-th input to the program.
-    Unknown,       // An unknown value in the program.
 }

@@ -3,16 +3,21 @@
 use std::{env, fs};
 
 use itertools::Itertools;
+use unique_ids::UniqueIdMaker;
+use values::Vid;
 
 use crate::{
-    optimization::{constant_propagation, evaluate_instruction, is_instruction_no_op, Value},
+    optimization::{constant_propagation, evaluate_instruction},
     parser::parse_program,
     program::{Instruction, InstructionStream, Operand, Register},
+    values::Value,
 };
 
 mod optimization;
 mod parser;
 mod program;
+mod values;
+mod unique_ids;
 
 fn main() {
     let args: Vec<String> = env::args().collect();
@@ -47,7 +52,8 @@ fn get_improvement_percent(original_length: usize, optimized_length: usize) -> f
 }
 
 fn optimize_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
-    constant_propagation(input_program)
+    let mut vid_maker = Vid::unique_id_maker();
+    constant_propagation(&mut vid_maker, input_program)
 }
 
 fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
@@ -73,22 +79,46 @@ fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
 }
 
 fn simulate_registers(input_program: Vec<Instruction>) {
+    let mut vid_maker = Vid::unique_id_maker();
+
     println!("instruction           post-instruction registers");
     println!("                 w     |     x     |     y     |     z");
     println!("--------------------------------------------------------------------");
-    println!("<start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
 
     let mut non_input_instr = 0;
     let mut non_input_instr_on_unknown_register = 0;
     let mut non_input_instr_without_any_exact = 0;
-
-    let mut registers: [Value; 4] = [Value::Exact(0); 4];
     let mut seen_inputs = 0;
+
+    let mut registers: [Value; 4] = [
+        Value::Exact(vid_maker.make_new_id(), 0),
+        Value::Exact(vid_maker.make_new_id(), 0),
+        Value::Exact(vid_maker.make_new_id(), 0),
+        Value::Exact(vid_maker.make_new_id(), 0),
+    ];
+
+    fn beautifully_padded_register(v: Value) -> String {
+        let result = format!("{}", v);
+        if result.len() % 2 == 0 {
+            format!(" {}", v)
+        } else {
+            result
+        }
+    }
+    println!(
+        "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]",
+        "<start>",
+        beautifully_padded_register(registers[0]),
+        beautifully_padded_register(registers[1]),
+        beautifully_padded_register(registers[2]),
+        beautifully_padded_register(registers[3]),
+    );
+
     for instr in input_program {
         let mut is_no_op = false;
 
         if let Instruction::Input(Register(index)) = instr {
-            registers[index] = Value::Input(seen_inputs);
+            registers[index] = Value::Input(vid_maker.make_new_id(), seen_inputs);
             seen_inputs += 1;
         } else {
             non_input_instr += 1;
@@ -96,7 +126,7 @@ fn simulate_registers(input_program: Vec<Instruction>) {
             let register_index = instr.destination();
             let left = registers[register_index];
             let right = match instr.operand().unwrap() {
-                Operand::Literal(lit) => Value::Exact(lit),
+                Operand::Literal(lit) => Value::Exact(vid_maker.make_new_id(), lit),
                 Operand::Register(Register(r)) => registers[r],
             };
 
@@ -108,23 +138,15 @@ fn simulate_registers(input_program: Vec<Instruction>) {
                 non_input_instr_without_any_exact += 1;
             }
 
-            is_no_op = is_instruction_no_op(instr, left, right);
-            let result = evaluate_instruction(instr, left, right);
+            let previous_register_value = registers[register_index];
+            let result = evaluate_instruction(&mut vid_maker, instr, left, right);
+
+            is_no_op = previous_register_value == result;
             registers[register_index] = result;
         }
         let no_op_str = if is_no_op { " *NoOp" } else { "" };
-
-        fn beautifully_padded_register(v: Value) -> String {
-            let result = format!("{:?}", v);
-            if result.len() % 2 == 0 {
-                format!(" {:?}", v)
-            } else {
-                result
-            }
-        }
-
         println!(
-            "{:10} [ {:^9} | {:^9} | {:^9} | {:^9} ]{}",
+            "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]{}",
             format!("{}", instr),
             beautifully_padded_register(registers[0]),
             beautifully_padded_register(registers[1]),
