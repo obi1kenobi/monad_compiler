@@ -3,82 +3,92 @@
 use crate::{program::{Instruction, Operand, Register, Program}, unique_ids::UniqueIdMaker, values::{Vid, Value}};
 
 pub(crate) fn evaluate_instruction(program: &mut Program, instr: Instruction, left: Value, right: Value) -> Value {
-    // If both the left and the right value are known exactly,
-    // we can always calculate an exact result.
-    if let (Value::Exact(_, left), Value::Exact(_, right)) = (left, right) {
-        // Both values for this instruction are known exactly.
-        // We can compute the result exactly as well.
-        let exact_value = match instr {
-            Instruction::Input(..) => unreachable!(), // not supported here
-            Instruction::Add(..) => left + right,
-            Instruction::Mul(..) => left * right,
-            Instruction::Div(..) => left / right,
-            Instruction::Mod(..) => left % right,
-            Instruction::Equal(..) => {
-                if left == right {
-                    1
-                } else {
-                    0
-                }
-            }
-        };
-        return program.new_exact_value(exact_value);
+    match instr {
+        Instruction::Input(..) => unreachable!(),
+        Instruction::Add(..) => evaluate_add(program, left, right),
+        Instruction::Mul(..) => evaluate_mul(program, left, right),
+        Instruction::Div(..) => evaluate_div(program, left, right),
+        Instruction::Mod(..) => evaluate_mod(program, left, right),
+        Instruction::Equal(..) => evaluate_equal(program, left, right),
+    }
+}
+
+fn evaluate_add(program: &mut Program, left: Value, right: Value) -> Value {
+    match (left, right) {
+        (Value::Exact(_, left), Value::Exact(_, right)) => {
+            // Both values known exactly, so the output is exact too.
+            program.new_exact_value(left + right)
+        }
+        (_, Value::Exact(_, 0)) => left,   // left + 0 = left
+        (Value::Exact(_, 0), _) => right,  // 0 + right = right
+        _ => program.new_unknown_value(),
+    }
+}
+
+fn evaluate_mul(program: &mut Program, left: Value, right: Value) -> Value {
+    match (left, right) {
+        (Value::Exact(_, left), Value::Exact(_, right)) => {
+            // Both values known exactly, so the output is exact too.
+            program.new_exact_value(left * right)
+        }
+        (_, Value::Exact(_, 0)) | (Value::Exact(_, 0), _) => {
+            // We are multiplying by 0.
+            // No matter what the other value is, the output is always 0.
+            program.new_exact_value(0)
+        }
+        (_, Value::Exact(_, 1)) => left,   // left * 1 = left
+        (Value::Exact(_, 1), _) => right,  // 1 * right = right
+        _ => program.new_unknown_value(),
+    }
+}
+
+fn evaluate_div(program: &mut Program, left: Value, right: Value) -> Value {
+    match (left, right) {
+        (Value::Exact(_, left), Value::Exact(_, right)) => {
+            // Both values known exactly, so the output is exact too.
+            program.new_exact_value(left / right)
+        }
+        (Value::Exact(_, 0), _) => left,  // 0 / right = 0
+        (_, Value::Exact(_, 1)) => left,  // left / 1 = left
+        _ => program.new_unknown_value(),
+    }
+}
+
+fn evaluate_mod(program: &mut Program, left: Value, right: Value) -> Value {
+    match (left, right) {
+        (Value::Exact(_, left), Value::Exact(_, right)) => {
+            // Both values known exactly, so the output is exact too.
+            program.new_exact_value(left % right)
+        }
+        (Value::Exact(_, 0), _) => {
+            // The remainder when dividing 0 by any number is always 0.
+            program.new_exact_value(0)
+        }
+        (_, Value::Exact(_, 1)) => {
+            // Any number divided by 1 produces a remainder of 0.
+            program.new_exact_value(0)
+        }
+        _ => program.new_unknown_value(),
+    }
+}
+
+fn evaluate_equal(program: &mut Program, left: Value, right: Value) -> Value {
+    if left == right {
+        // The two values are equal,
+        // so we know this instruction is guaranteed to produce 1.
+        return program.new_exact_value(1);
     }
 
-    // For some instructions, we may still be able to figure out the result
-    // even though one of the values is unknown. The resulting value might not be exact,
-    // but may still indicate information such as "the same value as the left input value,"
-    // which is useful information for downstream optimization passes.
-    let maybe_value = match instr {
-        Instruction::Input(..) => unreachable!(), // not supported here
-        Instruction::Add(..) => {
-            match (left, right) {
-                (_, Value::Exact(_, 0)) => Some(left),   // left + 0 = left
-                (Value::Exact(_, 0), _) => Some(right),  // 0 + right = right
-                _ => None,
-            }
+    // The values are *not known* to be equal: they might or might not be equal.
+    // Consider e.g. Unknown(Vid(i)) and Unknown(Vid(j)) with i != j.
+    // The only case where we can (currently) know for sure that the two values
+    // are non-equal is if both values are Value::Exact representing different numbers.
+    // Otherwise, the outcome of this instruction is unknown.
+    match (left, right) {
+        (Value::Exact(_, l), Value::Exact(_, r)) if l != r => {
+            program.new_exact_value(0)
         }
-        Instruction::Mul(..) => {
-            match (left, right) {
-                (_, Value::Exact(_, 0)) | (Value::Exact(_, 0), _) => {
-                    // We are multiplying by 0.
-                    // No matter what the other value is, the output is always 0.
-                    Some(program.new_exact_value(0))
-                }
-                (_, Value::Exact(_, 1)) => Some(left),   // left * 1 = left
-                (Value::Exact(_, 1), _) => Some(right),  // 1 * right = right
-                _ => None,
-            }
-        }
-        Instruction::Div(..) => {
-            match (left, right) {
-                (Value::Exact(_, 0), _) => Some(left),  // 0 / right = 0
-                (_, Value::Exact(_, 1)) => Some(left),  // left / 1 = left
-                _ => None,
-            }
-        }
-        Instruction::Equal(..) => {
-            if left == right {
-                // Situations where both left and right are Exact(..) values were already handled
-                // in the code above. However, it's possible for us to know that two values
-                // are equal even if we don't know what number they represent:
-                //   Unknown(Vid(i)) is known to be equal to Unknown(Vid(j)) when i == j.
-                // However, when i != j, then we don't know whether Unknown(Vid(i)) and
-                // Unknown(Vid(j)) are equal or not, so we can't determine anything about that case.
-                Some(program.new_exact_value(1))
-            } else {
-                None
-            }
-        }
-        _ => None,
-    };
-
-    if let Some(value) = maybe_value {
-        // We found a specific value that this instruction produces!
-        value
-    } else {
-        // We weren't able to determine the result of this instruction, return a new Unknown value.
-        program.new_unknown_value()
+        _ => program.new_unknown_value(),
     }
 }
 
