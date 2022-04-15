@@ -33,7 +33,7 @@ pub(crate) fn evaluate_instruction(program: &mut Program, instr: Instruction, le
         Instruction::Input(..) => unreachable!(), // not supported here
         Instruction::Add(..) => {
             match (left, right) {
-                (_, Value::Exact(_, 0)) => Some(left),   // left + 0 = p
+                (_, Value::Exact(_, 0)) => Some(left),   // left + 0 = left
                 (Value::Exact(_, 0), _) => Some(right),  // 0 + right = right
                 _ => None,
             }
@@ -42,7 +42,7 @@ pub(crate) fn evaluate_instruction(program: &mut Program, instr: Instruction, le
             match (left, right) {
                 (_, Value::Exact(_, 0)) | (Value::Exact(_, 0), _) => {
                     // We are multiplying by 0.
-                    // Even though the other input is not known, the output is always 0.
+                    // No matter what the other value is, the output is always 0.
                     Some(program.new_exact_value(0))
                 }
                 (_, Value::Exact(_, 1)) => Some(left),   // left * 1 = left
@@ -74,6 +74,7 @@ pub(crate) fn evaluate_instruction(program: &mut Program, instr: Instruction, le
     };
 
     if let Some(value) = maybe_value {
+        // We found a specific value that this instruction produces!
         value
     } else {
         // We weren't able to determine the result of this instruction, return a new Unknown value.
@@ -90,19 +91,19 @@ pub fn constant_propagation(instructions: Vec<Instruction>) -> Vec<Instruction> 
         if let Instruction::Input(Register(index)) = instr {
             registers[index] = program.new_input_value();
         } else {
-            let register_index = instr.destination();
-            let left = registers[register_index];
+            let destination_register = instr.destination();
+            let left = registers[destination_register];
             let right = match instr.operand().unwrap() {
                 Operand::Literal(lit) => program.new_exact_value(lit),
                 Operand::Register(Register(r)) => registers[r],
             };
 
-            let previous_register_value = registers[register_index];
+            let previous_register_value = registers[destination_register];
 
-            let new_value = evaluate_instruction(&mut program, instr, left, right);
-            registers[register_index] = new_value;
+            let new_register_value = evaluate_instruction(&mut program, instr, left, right);
+            registers[destination_register] = new_register_value;
 
-            if previous_register_value == new_value {
+            if previous_register_value == new_register_value {
                 // This instruction is a no-op,
                 // so omit it from the list of instructions.
                 continue;
