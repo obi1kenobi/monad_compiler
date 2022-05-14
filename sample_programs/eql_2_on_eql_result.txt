@@ -1,0 +1,4 @@
+inp w
+inp x
+eql w x
+eql w 2
