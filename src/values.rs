@@ -4,13 +4,15 @@ use crate::unique_ids::UniqueIdMaker;
 
 /// A value ID -- a unique way to refer to a particular value in a program.
 ///
-/// Multiple values in a program can be equivalent to each other, but have different Vids.
-/// For example, two registers can both contain the number 5, but the Vids corresponding to
-/// the values representing those two registers' states can be different.
+/// If a program's register state contains two values with identical Vids,
+/// those two registers' values are guaranteed to be identical. However,
+/// just because two registers both currently hold the same number,
+/// that does not mean their values must have the same Vid.
 ///
-/// A Vid represents a value in a program which was either created as the output of
-/// a particular instruction in the program, or existed in the initial state of the program
-/// when it started (e.g. as the initial value of a register at program startup).
+/// A Vid represents a value which was either created as the output
+/// of a particular instruction in the program, or existed in the initial
+/// state of the program when it started (e.g. as the initial value of
+/// a register at program startup).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Vid(pub usize);
 
@@ -33,9 +35,17 @@ impl From<usize> for Vid {
 
 #[derive(Debug, Clone, Copy, PartialOrd, Ord)]
 pub enum Value {
-    Exact(Vid, i64),
-    Input(Vid, usize),
-    Unknown(Vid),
+    Exact(Vid, i64),   // Exact(vid, k) is the constant value k.
+    Input(Vid, usize), // Input(vid, i) is the i-th input to the program.
+    Unknown(Vid),      // An unknown value in the program.
+}
+
+impl Value {
+    pub fn vid(&self) -> Vid {
+        match self {
+            Value::Exact(vid, _) | Value::Input(vid, _) | Value::Unknown(vid) => *vid,
+        }
+    }
 }
 
 impl PartialEq for Value {
@@ -48,14 +58,6 @@ impl PartialEq for Value {
 }
 
 impl Eq for Value {}
-
-impl Value {
-    pub fn vid(&self) -> Vid {
-        match self {
-            Value::Exact(vid, _) | Value::Input(vid, _) | Value::Unknown(vid) => *vid,
-        }
-    }
-}
 
 impl Display for Value {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
