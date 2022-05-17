@@ -2,8 +2,7 @@
 
 use crate::{
     program::{Instruction, Operand, Program, Register},
-    unique_ids::UniqueIdMaker,
-    values::{Value, Vid},
+    values::Value,
 };
 
 pub(crate) fn evaluate_instruction(
@@ -12,90 +11,66 @@ pub(crate) fn evaluate_instruction(
     left: Value,
     right: Value,
 ) -> Value {
-    match instr {
-        Instruction::Input(..) => unreachable!(),
-        Instruction::Add(..) => evaluate_add(program, left, right),
-        Instruction::Mul(..) => evaluate_mul(program, left, right),
-        Instruction::Div(..) => evaluate_div(program, left, right),
-        Instruction::Mod(..) => evaluate_mod(program, left, right),
-        Instruction::Equal(..) => evaluate_equal(program, left, right),
+    if let (Value::Exact(left), Value::Exact(right)) = (left, right) {
+        // Both values for this instruction are known exactly.
+        // We can compute the result exactly as well.
+        let exact_value = match instr {
+            Instruction::Input(..) => unreachable!(), // not supported here
+            Instruction::Add(..) => left + right,
+            Instruction::Mul(..) => left * right,
+            Instruction::Div(..) => left / right,
+            Instruction::Mod(..) => left % right,
+            Instruction::Equal(..) => {
+                if left == right {
+                    1
+                } else {
+                    0
+                }
+            }
+        };
+        return program.new_exact_value(exact_value);
     }
+
+    if matches!(instr, Instruction::Mul(..))
+        && (matches!(left, Value::Exact(0)) || matches!(right, Value::Exact(0)))
+    {
+        // We are multiplying by 0.
+        // Even though the other input is not known, the output is always 0.
+        return program.new_exact_value(0);
+    }
+
+    // We weren't able to determine the result of this instruction.
+    program.new_unknown_value()
 }
 
-fn evaluate_add(program: &mut Program, left: Value, right: Value) -> Value {
-    match (left, right) {
-        (Value::Exact(_, left), Value::Exact(_, right)) => {
-            // Both values known exactly, so the output is exact too.
-            program.new_exact_value(left + right)
-        }
-        (_, Value::Exact(_, 0)) => left,  // left + 0 = left
-        (Value::Exact(_, 0), _) => right, // 0 + right = right
-        _ => program.new_unknown_value(),
-    }
-}
+#[rustfmt::skip]
+pub(crate) fn is_instruction_no_op(instr: Instruction, left: Value, right: Value) -> bool {
+    // Import the variant names directly to improve readability.
+    use Instruction::{Add, Mul, Div, Mod, Equal};
 
-fn evaluate_mul(program: &mut Program, left: Value, right: Value) -> Value {
-    match (left, right) {
-        (Value::Exact(_, left), Value::Exact(_, right)) => {
-            // Both values known exactly, so the output is exact too.
-            program.new_exact_value(left * right)
+    match (left, instr, right) {
+        (    _,               Add(..),   Value::Exact(0))       // _ + 0
+        | (  Value::Exact(0), Mul(..),   _              )       // 0 * _
+        | (  _,               Mul(..),   Value::Exact(1))       // _ * 1
+        | (  Value::Exact(0), Div(..),   _              )       // 0 / _
+        | (  _,               Div(..),   Value::Exact(1)) => {  // _ / 1
+            // All these cases are always no-ops, regardless of
+            // the other value in the operation.
+            true
         }
-        (_, Value::Exact(_, 0)) | (Value::Exact(_, 0), _) => {
-            // We are multiplying by 0.
-            // No matter what the other value is, the output is always 0.
-            program.new_exact_value(0)
+        (Value::Exact(a), Mod(..), Value::Exact(b)) => {
+            // a mod b computes the remainder of a when dividing by b.
+            // When a < b, the remainder is a itself, which is a no-op.
+            a < b
         }
-        (_, Value::Exact(_, 1)) => left,  // left * 1 = left
-        (Value::Exact(_, 1), _) => right, // 1 * right = right
-        _ => program.new_unknown_value(),
-    }
-}
-
-fn evaluate_div(program: &mut Program, left: Value, right: Value) -> Value {
-    match (left, right) {
-        (Value::Exact(_, left), Value::Exact(_, right)) => {
-            // Both values known exactly, so the output is exact too.
-            program.new_exact_value(left / right)
+        (Value::Exact(a), Equal(..), Value::Exact(b)) => {
+            // We're considering "eql a b" and storing the result in a.
+            // If a == b, then a becomes 1. This is a no-op if a == b == 1.
+            // If a != b, then a becomes 0. This is a no-op if a != b and a == 0.
+            let sides_equal = a == b;
+            (sides_equal && a == 1) || (!sides_equal && a == 0)
         }
-        (Value::Exact(_, 0), _) => left, // 0 / right = 0
-        (_, Value::Exact(_, 1)) => left, // left / 1 = left
-        _ => program.new_unknown_value(),
-    }
-}
-
-fn evaluate_mod(program: &mut Program, left: Value, right: Value) -> Value {
-    match (left, right) {
-        (Value::Exact(_, left), Value::Exact(_, right)) => {
-            // Both values known exactly, so the output is exact too.
-            program.new_exact_value(left % right)
-        }
-        (Value::Exact(_, 0), _) => {
-            // The remainder when dividing 0 by any number is always 0.
-            program.new_exact_value(0)
-        }
-        (_, Value::Exact(_, 1)) => {
-            // Any number divided by 1 produces a remainder of 0.
-            program.new_exact_value(0)
-        }
-        _ => program.new_unknown_value(),
-    }
-}
-
-fn evaluate_equal(program: &mut Program, left: Value, right: Value) -> Value {
-    if left == right {
-        // The two values are equal,
-        // so we know this instruction is guaranteed to produce 1.
-        return program.new_exact_value(1);
-    }
-
-    // The values are *not known* to be equal: they might or might not be equal.
-    // Consider e.g. Unknown(Vid(i)) and Unknown(Vid(j)) with i != j.
-    // The only case where we can (currently) know for sure that the two values
-    // are non-equal is if both values are Value::Exact representing different numbers.
-    // Otherwise, the outcome of this instruction is unknown.
-    match (left, right) {
-        (Value::Exact(_, l), Value::Exact(_, r)) if l != r => program.new_exact_value(0),
-        _ => program.new_unknown_value(),
+        _ => false, // All the other cases are not no-ops.
     }
 }
 
@@ -104,25 +79,24 @@ pub fn constant_propagation(instructions: Vec<Instruction>) -> Vec<Instruction> 
     let mut new_instructions: Vec<Instruction> = vec![];
 
     let mut registers: [Value; 4] = program.initial_registers();
+
     for instr in instructions {
         if let Instruction::Input(Register(index)) = instr {
             registers[index] = program.new_input_value();
         } else {
-            let destination_register = instr.destination();
-            let left = registers[destination_register];
+            let register_index = instr.destination();
+            let left = registers[register_index];
             let right = match instr.operand().unwrap() {
                 Operand::Literal(lit) => program.new_exact_value(lit),
                 Operand::Register(Register(r)) => registers[r],
             };
 
-            let previous_register_value = registers[destination_register];
-
             let new_register_value = evaluate_instruction(&mut program, instr, left, right);
-            registers[destination_register] = new_register_value;
+            registers[register_index] = new_register_value;
 
-            if previous_register_value == new_register_value {
+            if is_instruction_no_op(instr, left, right) {
                 // This instruction is a no-op,
-                // so omit it from the list of instructions.
+                // so don't include it in the new program.
                 continue;
             }
         }

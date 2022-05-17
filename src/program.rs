@@ -2,31 +2,25 @@
 
 use std::fmt::Display;
 
-use crate::{
-    unique_ids::UniqueIdMaker,
-    values::{Value, Vid},
-};
+use crate::{unique_ids::UniqueIdMaker, values::Value};
 
 #[derive(Debug)]
 pub struct Program {
-    vid_maker: UniqueIdMaker<Vid>,
     initial_registers: [Value; 4],
     next_input_id: usize,
 }
 
 impl Program {
     pub fn new() -> Self {
-        let mut vid_maker = Vid::unique_id_maker();
         let initial_registers = [
-            Value::Exact(vid_maker.make_new_id(), 0),
-            Value::Exact(vid_maker.make_new_id(), 0),
-            Value::Exact(vid_maker.make_new_id(), 0),
-            Value::Exact(vid_maker.make_new_id(), 0),
+            Value::Exact(0),
+            Value::Exact(0),
+            Value::Exact(0),
+            Value::Exact(0),
         ];
         let next_input_id = 0;
 
         Self {
-            vid_maker,
             initial_registers,
             next_input_id,
         }
@@ -37,17 +31,17 @@ impl Program {
     }
 
     pub fn new_exact_value(&mut self, exactly: i64) -> Value {
-        Value::Exact(self.vid_maker.make_new_id(), exactly)
+        Value::Exact(exactly)
     }
 
     pub fn new_unknown_value(&mut self) -> Value {
-        Value::Unknown(self.vid_maker.make_new_id())
+        Value::Unknown
     }
 
     pub fn new_input_value(&mut self) -> Value {
-        let next_input_id = self.next_input_id;
+        let input_id = self.next_input_id;
         self.next_input_id += 1;
-        Value::Input(self.vid_maker.make_new_id(), next_input_id)
+        Value::Input(input_id)
     }
 }
 

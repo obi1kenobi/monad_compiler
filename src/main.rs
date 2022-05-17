@@ -3,11 +3,9 @@
 use std::{env, fs};
 
 use itertools::Itertools;
-use unique_ids::UniqueIdMaker;
-use values::Vid;
 
 use crate::{
-    optimization::{constant_propagation, evaluate_instruction},
+    optimization::{constant_propagation, evaluate_instruction, is_instruction_no_op},
     parser::parse_program,
     program::{Instruction, InstructionStream, Operand, Program, Register},
     values::Value,
@@ -80,45 +78,31 @@ fn analyze_program(input_program: Vec<Instruction>) -> Vec<Instruction> {
 fn simulate_registers(input_program: Vec<Instruction>) {
     let mut program = Program::new();
 
-    println!("instruction                        post-instruction registers");
-    println!("                    w        |        x        |        y        |        z");
-    println!(
-        "------------------------------------------------------------------------------------"
-    );
+    println!("instruction           post-instruction registers");
+    println!("                 w     |     x     |     y     |     z");
+    println!("--------------------------------------------------------------------");
 
     let mut non_input_instr = 0;
     let mut non_input_instr_on_unknown_register = 0;
     let mut non_input_instr_without_any_exact = 0;
 
-    let mut non_exact_value_used = 0;
-    let mut non_exact_unique_vids = 0;
-
     let mut registers: [Value; 4] = program.initial_registers();
 
     fn beautifully_padded_register(v: Value) -> String {
-        let result = format!("{}", v);
+        let result = format!("{:?}", v);
         if result.len() % 2 == 0 {
-            format!(" {}", v)
+            format!(" {:?}", v)
         } else {
             result
         }
     }
-    println!(
-        "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]",
-        "<start>",
-        beautifully_padded_register(registers[0]),
-        beautifully_padded_register(registers[1]),
-        beautifully_padded_register(registers[2]),
-        beautifully_padded_register(registers[3]),
-    );
+    println!("<start>    [  Exact(0) |  Exact(0) |  Exact(0) |  Exact(0) ]");
 
     for instr in input_program {
         let mut is_no_op = false;
 
         if let Instruction::Input(Register(index)) = instr {
             registers[index] = program.new_input_value();
-            non_exact_value_used += 1;
-            non_exact_unique_vids += 1;
         } else {
             non_input_instr += 1;
 
@@ -131,28 +115,20 @@ fn simulate_registers(input_program: Vec<Instruction>) {
 
             if !matches!(left, Value::Exact(..)) || !matches!(right, Value::Exact(..)) {
                 non_input_instr_on_unknown_register += 1;
-                non_exact_value_used += 1;
             }
 
             if !matches!(left, Value::Exact(..)) && !matches!(right, Value::Exact(..)) {
                 non_input_instr_without_any_exact += 1;
-                non_exact_value_used += 1;
             }
 
-            let previous_register_value = registers[register_index];
+            is_no_op = is_instruction_no_op(instr, left, right);
             let result = evaluate_instruction(&mut program, instr, left, right);
-
-            if !matches!(result, Value::Exact(..)) {
-                non_exact_value_used += 1;
-                non_exact_unique_vids += 1;
-            }
-
-            is_no_op = previous_register_value == result;
             registers[register_index] = result;
         }
         let no_op_str = if is_no_op { " *NoOp" } else { "" };
+
         println!(
-            "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]{}",
+            "{:10} [ {:^9} | {:^9} | {:^9} | {:^9} ]{}",
             format!("{}", instr),
             beautifully_padded_register(registers[0]),
             beautifully_padded_register(registers[1]),
@@ -172,17 +148,5 @@ fn simulate_registers(input_program: Vec<Instruction>) {
         "- without any exact values:   {:3} ({:.1}%)",
         non_input_instr_without_any_exact,
         (non_input_instr_without_any_exact * 100) as f64 / non_input_instr as f64
-    );
-
-    println!("\nTotal non-exact values uses: {:3}", non_exact_value_used);
-    println!(
-        "- number of unique values: {:3} ({:.1}%)",
-        non_exact_unique_vids,
-        (non_exact_unique_vids * 100) as f64 / non_exact_value_used as f64
-    );
-    println!(
-        "- non-unique uses: {:3} ({:.1}%)",
-        non_exact_value_used - non_exact_unique_vids,
-        ((non_exact_value_used - non_exact_unique_vids) * 100) as f64 / non_exact_value_used as f64
     );
 }
