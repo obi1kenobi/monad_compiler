@@ -8,7 +8,7 @@ use nom::{
     IResult,
 };
 
-use crate::program::{Register, Operand, Instruction};
+use crate::program::{Instruction, Operand, Register};
 
 fn register(input: &str) -> IResult<&str, Register> {
     let (remainder, matched_char) = one_of("wxyz")(input)?;

@@ -2,7 +2,10 @@
 
 use std::fmt::Display;
 
-use crate::{unique_ids::UniqueIdMaker, values::{Vid, Value}};
+use crate::{
+    unique_ids::UniqueIdMaker,
+    values::{Value, Vid},
+};
 
 #[derive(Debug)]
 pub struct Program {
@@ -89,12 +92,12 @@ impl Display for Operand {
 /// See Advent of Code 2021 Day 24 for the spec: https://adventofcode.com/2021/day/24
 #[derive(Debug, Clone, Copy)]
 pub enum Instruction {
-    Input(Register),           // e.g. inp x
-    Add(Register, Operand),    // e.g. add x 2
-    Mul(Register, Operand),    // e.g. mul x 0
-    Div(Register, Operand),    // e.g. div x 10
-    Mod(Register, Operand),    // e.g. mod x 31
-    Equal(Register, Operand),  // e.g. eql x y
+    Input(Register),          // e.g. inp x
+    Add(Register, Operand),   // e.g. add x 2
+    Mul(Register, Operand),   // e.g. mul x 0
+    Div(Register, Operand),   // e.g. div x 10
+    Mod(Register, Operand),   // e.g. mod x 31
+    Equal(Register, Operand), // e.g. eql x y
 }
 
 impl Display for Instruction {
@@ -120,7 +123,8 @@ impl Instruction {
             Instruction::Div(r, _) => r,
             Instruction::Mod(r, _) => r,
             Instruction::Equal(r, _) => r,
-        }.0
+        }
+        .0
     }
 
     #[inline]

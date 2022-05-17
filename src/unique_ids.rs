@@ -11,7 +11,10 @@ pub struct UniqueIdMaker<T: From<usize>> {
 
 impl<T: From<usize>> UniqueIdMaker<T> {
     pub fn starting_at(start: usize) -> Self {
-        Self { next_id: start, _phantom: PhantomData }
+        Self {
+            next_id: start,
+            _phantom: PhantomData,
+        }
     }
 
     pub fn make_new_id(&mut self) -> T {

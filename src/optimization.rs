@@ -1,8 +1,17 @@
 #![allow(dead_code)]
 
-use crate::{program::{Instruction, Operand, Register, Program}, unique_ids::UniqueIdMaker, values::{Vid, Value}};
+use crate::{
+    program::{Instruction, Operand, Program, Register},
+    unique_ids::UniqueIdMaker,
+    values::{Value, Vid},
+};
 
-pub(crate) fn evaluate_instruction(program: &mut Program, instr: Instruction, left: Value, right: Value) -> Value {
+pub(crate) fn evaluate_instruction(
+    program: &mut Program,
+    instr: Instruction,
+    left: Value,
+    right: Value,
+) -> Value {
     match instr {
         Instruction::Input(..) => unreachable!(),
         Instruction::Add(..) => evaluate_add(program, left, right),
@@ -19,8 +28,8 @@ fn evaluate_add(program: &mut Program, left: Value, right: Value) -> Value {
             // Both values known exactly, so the output is exact too.
             program.new_exact_value(left + right)
         }
-        (_, Value::Exact(_, 0)) => left,   // left + 0 = left
-        (Value::Exact(_, 0), _) => right,  // 0 + right = right
+        (_, Value::Exact(_, 0)) => left,  // left + 0 = left
+        (Value::Exact(_, 0), _) => right, // 0 + right = right
         _ => program.new_unknown_value(),
     }
 }
@@ -36,8 +45,8 @@ fn evaluate_mul(program: &mut Program, left: Value, right: Value) -> Value {
             // No matter what the other value is, the output is always 0.
             program.new_exact_value(0)
         }
-        (_, Value::Exact(_, 1)) => left,   // left * 1 = left
-        (Value::Exact(_, 1), _) => right,  // 1 * right = right
+        (_, Value::Exact(_, 1)) => left,  // left * 1 = left
+        (Value::Exact(_, 1), _) => right, // 1 * right = right
         _ => program.new_unknown_value(),
     }
 }
@@ -48,8 +57,8 @@ fn evaluate_div(program: &mut Program, left: Value, right: Value) -> Value {
             // Both values known exactly, so the output is exact too.
             program.new_exact_value(left / right)
         }
-        (Value::Exact(_, 0), _) => left,  // 0 / right = 0
-        (_, Value::Exact(_, 1)) => left,  // left / 1 = left
+        (Value::Exact(_, 0), _) => left, // 0 / right = 0
+        (_, Value::Exact(_, 1)) => left, // left / 1 = left
         _ => program.new_unknown_value(),
     }
 }
@@ -85,9 +94,7 @@ fn evaluate_equal(program: &mut Program, left: Value, right: Value) -> Value {
     // are non-equal is if both values are Value::Exact representing different numbers.
     // Otherwise, the outcome of this instruction is unknown.
     match (left, right) {
-        (Value::Exact(_, l), Value::Exact(_, r)) if l != r => {
-            program.new_exact_value(0)
-        }
+        (Value::Exact(_, l), Value::Exact(_, r)) if l != r => program.new_exact_value(0),
         _ => program.new_unknown_value(),
     }
 }
