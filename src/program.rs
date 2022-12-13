@@ -1,17 +1,30 @@
 #![allow(dead_code)]
 
-use std::fmt::Display;
+use std::{
+    collections::{btree_map::Range, BTreeMap},
+    fmt::Display,
+};
 
 use crate::{
     unique_ids::UniqueIdMaker,
     values::{Value, Vid},
 };
 
+/// Our programs always use i64 numbers, and this type alias
+/// will let us not have to repeat that everywhere.
+type RangeInclusive = std::ops::RangeInclusive<i64>;
+
+/// The range of values that we know exactly nothing about.
+pub const FULLY_UNKNOWN_RANGE: RangeInclusive = i64::MIN..=i64::MAX;
+
 #[derive(Debug)]
 pub struct Program {
     vid_maker: UniqueIdMaker<Vid>,
     initial_registers: [Value; 4],
     next_input_id: usize,
+
+    /// The possible ranges of numbers each program value might take.
+    value_ranges: BTreeMap<Vid, RangeInclusive>,
 }
 
 impl Program {
@@ -25,10 +38,17 @@ impl Program {
         ];
         let next_input_id = 0;
 
+        // The initial values are known to be exactly 0, as initialized above.
+        let mut value_ranges = BTreeMap::new();
+        for register in &initial_registers {
+            value_ranges.insert(register.vid(), 0..=0);
+        }
+
         Self {
             vid_maker,
             initial_registers,
             next_input_id,
+            value_ranges,
         }
     }
 
@@ -37,17 +57,28 @@ impl Program {
     }
 
     pub fn new_exact_value(&mut self, exactly: i64) -> Value {
-        Value::Exact(self.vid_maker.make_new_id(), exactly)
+        let vid = self.vid_maker.make_new_id();
+        self.value_ranges.insert(vid, exactly..=exactly);
+        Value::Exact(vid, exactly)
     }
 
-    pub fn new_unknown_value(&mut self) -> Value {
-        Value::Unknown(self.vid_maker.make_new_id())
+    pub fn new_unknown_value(&mut self, range: RangeInclusive) -> Value {
+        let vid = self.vid_maker.make_new_id();
+        self.value_ranges.insert(vid, range);
+        Value::Unknown(vid)
     }
 
     pub fn new_input_value(&mut self) -> Value {
         let next_input_id = self.next_input_id;
         self.next_input_id += 1;
-        Value::Input(self.vid_maker.make_new_id(), next_input_id)
+
+        let vid = self.vid_maker.make_new_id();
+        self.value_ranges.insert(vid, 0..=9);
+        Value::Input(vid, next_input_id)
+    }
+
+    pub fn value_range(&self, vid: &Vid) -> RangeInclusive {
+        self.value_ranges[vid].clone()
     }
 }
 

@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 use crate::{
-    program::{Instruction, Operand, Program, Register},
+    program::{Instruction, Operand, Program, Register, FULLY_UNKNOWN_RANGE},
     unique_ids::UniqueIdMaker,
     values::{Value, Vid},
 };
@@ -30,7 +30,7 @@ fn evaluate_add(program: &mut Program, left: Value, right: Value) -> Value {
         }
         (_, Value::Exact(_, 0)) => left,  // left + 0 = left
         (Value::Exact(_, 0), _) => right, // 0 + right = right
-        _ => program.new_unknown_value(),
+        _ => program.new_unknown_value(FULLY_UNKNOWN_RANGE),
     }
 }
 
@@ -47,7 +47,7 @@ fn evaluate_mul(program: &mut Program, left: Value, right: Value) -> Value {
         }
         (_, Value::Exact(_, 1)) => left,  // left * 1 = left
         (Value::Exact(_, 1), _) => right, // 1 * right = right
-        _ => program.new_unknown_value(),
+        _ => program.new_unknown_value(FULLY_UNKNOWN_RANGE),
     }
 }
 
@@ -59,7 +59,7 @@ fn evaluate_div(program: &mut Program, left: Value, right: Value) -> Value {
         }
         (Value::Exact(_, 0), _) => left, // 0 / right = 0
         (_, Value::Exact(_, 1)) => left, // left / 1 = left
-        _ => program.new_unknown_value(),
+        _ => program.new_unknown_value(FULLY_UNKNOWN_RANGE),
     }
 }
 
@@ -77,25 +77,44 @@ fn evaluate_mod(program: &mut Program, left: Value, right: Value) -> Value {
             // Any number divided by 1 produces a remainder of 0.
             program.new_exact_value(0)
         }
-        _ => program.new_unknown_value(),
+        (_, Value::Exact(_, right)) => {
+            // The remainder of dividing by a number is at most `number - 1`.
+            let range_top = right - 1;
+            program.new_unknown_value(0..=range_top)
+        }
+        _ => program.new_unknown_value(FULLY_UNKNOWN_RANGE),
     }
 }
 
 fn evaluate_equal(program: &mut Program, left: Value, right: Value) -> Value {
-    if left == right {
-        // The two values are equal,
-        // so we know this instruction is guaranteed to produce 1.
-        return program.new_exact_value(1);
-    }
-
-    // The values are *not known* to be equal: they might or might not be equal.
-    // Consider e.g. Unknown(Vid(i)) and Unknown(Vid(j)) with i != j.
-    // The only case where we can (currently) know for sure that the two values
-    // are non-equal is if both values are Value::Exact representing different numbers.
-    // Otherwise, the outcome of this instruction is unknown.
     match (left, right) {
-        (Value::Exact(_, l), Value::Exact(_, r)) if l != r => program.new_exact_value(0),
-        _ => program.new_unknown_value(),
+        (Value::Exact(_, l), Value::Exact(_, r)) => {
+            // We know both values exactly,
+            // so we can compute the result exactly too.
+            if l == r {
+                program.new_exact_value(1)
+            } else {
+                program.new_exact_value(0)
+            }
+        }
+        (left, right) => {
+            let left_range = program.value_range(&left.vid());
+            let right_range = program.value_range(&right.vid());
+
+            let left_too_high = left_range.start() > right_range.end();
+            let right_too_high = right_range.start() > left_range.end();
+
+            if left_too_high || right_too_high {
+                // The two ranges don't overlap at all.
+                // It's impossible for the two values to be equal.
+                program.new_exact_value(0)
+            } else {
+                // The two ranges overlap, so we don't know
+                // whether the values are equal or not.
+                // But the output of `eql` is always 0 or 1.
+                program.new_unknown_value(0..=1)
+            }
+        }
     }
 }
 

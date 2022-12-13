@@ -1,6 +1,9 @@
 #![allow(unused_imports)]
 
-use std::{env, fs};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    env, fs,
+};
 
 use itertools::Itertools;
 use unique_ids::UniqueIdMaker;
@@ -9,7 +12,7 @@ use values::Vid;
 use crate::{
     optimization::{constant_propagation, evaluate_instruction},
     parser::parse_program,
-    program::{Instruction, InstructionStream, Operand, Program, Register},
+    program::{Instruction, InstructionStream, Operand, Program, Register, FULLY_UNKNOWN_RANGE},
     values::Value,
 };
 
@@ -81,9 +84,9 @@ fn simulate_registers(input_program: Vec<Instruction>) {
     let mut program = Program::new();
 
     println!("instruction                        post-instruction registers");
-    println!("                    w        |        x        |        y        |        z");
+    println!("                     w         |         x         |         y         |         z");
     println!(
-        "------------------------------------------------------------------------------------"
+        "--------------------------------------------------------------------------------------------"
     );
 
     let mut non_input_instr = 0;
@@ -91,25 +94,49 @@ fn simulate_registers(input_program: Vec<Instruction>) {
     let mut non_input_instr_without_any_exact = 0;
 
     let mut non_exact_value_used = 0;
-    let mut non_exact_unique_vids = 0;
+
+    let mut non_exact_unique_vids: BTreeSet<Vid> = Default::default();
+
+    let mut narrowed_value_range = 0;
 
     let mut registers: [Value; 4] = program.initial_registers();
 
-    fn beautifully_padded_register(v: Value) -> String {
-        let result = format!("{}", v);
+    fn beautifully_padded_register(program: &Program, v: Value) -> String {
+        let mut result = format!("{}", v);
+
+        if let Value::Unknown(vid) = &v {
+            let range = program.value_range(vid);
+            if range == FULLY_UNKNOWN_RANGE {
+                result += "(inf)";
+            } else {
+                let start = if *range.start() == i64::MIN {
+                    "-inf".to_string()
+                } else {
+                    range.start().to_string()
+                };
+                let end = if *range.end() == i64::MAX {
+                    "inf".to_string()
+                } else {
+                    range.end().to_string()
+                };
+                result += format!("({}..={})", start, end).as_str();
+            }
+        }
+
         if result.len() % 2 == 0 {
             format!(" {}", v)
         } else {
             result
         }
     }
+
     println!(
-        "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]",
+        "{:10} [ {:^17} | {:^17} | {:^17} | {:^17} ]",
         "<start>",
-        beautifully_padded_register(registers[0]),
-        beautifully_padded_register(registers[1]),
-        beautifully_padded_register(registers[2]),
-        beautifully_padded_register(registers[3]),
+        beautifully_padded_register(&program, registers[0]),
+        beautifully_padded_register(&program, registers[1]),
+        beautifully_padded_register(&program, registers[2]),
+        beautifully_padded_register(&program, registers[3]),
     );
 
     for instr in input_program {
@@ -118,7 +145,8 @@ fn simulate_registers(input_program: Vec<Instruction>) {
         if let Instruction::Input(Register(index)) = instr {
             registers[index] = program.new_input_value();
             non_exact_value_used += 1;
-            non_exact_unique_vids += 1;
+            non_exact_unique_vids.insert(registers[index].vid());
+            narrowed_value_range += 1; // inputs always have a limited range of 1..=9
         } else {
             non_input_instr += 1;
 
@@ -144,7 +172,12 @@ fn simulate_registers(input_program: Vec<Instruction>) {
 
             if !matches!(result, Value::Exact(..)) {
                 non_exact_value_used += 1;
-                non_exact_unique_vids += 1;
+                if non_exact_unique_vids.insert(result.vid()) {
+                    // This is a new vid.
+                    if program.value_range(&result.vid()) != FULLY_UNKNOWN_RANGE {
+                        narrowed_value_range += 1;
+                    }
+                }
             }
 
             is_no_op = previous_register_value == result;
@@ -152,12 +185,12 @@ fn simulate_registers(input_program: Vec<Instruction>) {
         }
         let no_op_str = if is_no_op { " *NoOp" } else { "" };
         println!(
-            "{:10} [ {:^15} | {:^15} | {:^15} | {:^15} ]{}",
+            "{:10} [ {:^17} | {:^17} | {:^17} | {:^17} ]{}",
             format!("{}", instr),
-            beautifully_padded_register(registers[0]),
-            beautifully_padded_register(registers[1]),
-            beautifully_padded_register(registers[2]),
-            beautifully_padded_register(registers[3]),
+            beautifully_padded_register(&program, registers[0]),
+            beautifully_padded_register(&program, registers[1]),
+            beautifully_padded_register(&program, registers[2]),
+            beautifully_padded_register(&program, registers[3]),
             no_op_str
         );
     }
@@ -177,12 +210,18 @@ fn simulate_registers(input_program: Vec<Instruction>) {
     println!("\nTotal non-exact values uses: {:3}", non_exact_value_used);
     println!(
         "- number of unique values: {:3} ({:.1}%)",
-        non_exact_unique_vids,
-        (non_exact_unique_vids * 100) as f64 / non_exact_value_used as f64
+        non_exact_unique_vids.len(),
+        (non_exact_unique_vids.len() * 100) as f64 / non_exact_value_used as f64
     );
     println!(
         "- non-unique uses: {:3} ({:.1}%)",
-        non_exact_value_used - non_exact_unique_vids,
-        ((non_exact_value_used - non_exact_unique_vids) * 100) as f64 / non_exact_value_used as f64
+        non_exact_value_used - non_exact_unique_vids.len(),
+        ((non_exact_value_used - non_exact_unique_vids.len()) * 100) as f64
+            / non_exact_value_used as f64
+    );
+    println!(
+        "- with some range information: {:3} ({:.1}%)",
+        narrowed_value_range,
+        (narrowed_value_range * 100) as f64 / non_exact_unique_vids.len() as f64,
     );
 }
